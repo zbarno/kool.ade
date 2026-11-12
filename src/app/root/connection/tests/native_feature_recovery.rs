@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 mod unsafe_conflict;
 
 fn failed_saved_answer_recovery(
-    conflicting_replacement: bool,
+    replacement_status: Option<crate::domain::ChangeStatus>,
 ) -> (crate::app::root::KooladeApp, String, String, String, String) {
     let mut app = crate::app::root::board_tests::fixture();
     let Screen::Connected(project) = &mut app.screen else {
@@ -42,12 +42,9 @@ fn failed_saved_answer_recovery(
         &project.state.planning_store,
     )
     .unwrap();
-    if conflicting_replacement {
-        let replacement = crate::test_support::current_change_fixture(
-            source_text,
-            crate::domain::ChangeStatus::Draft,
-        )
-        .unwrap();
+    if let Some(replacement_status) = replacement_status {
+        let replacement =
+            crate::test_support::current_change_fixture(source_text, replacement_status).unwrap();
         let changes = crate::core::apply::private_document_draft_changes(
             &project.state.planning_store,
             &[("feature:F1".into(), replacement)],
@@ -118,7 +115,7 @@ fn failed_saved_answer_recovery(
 /// setup is one app fixture and one store reload.
 #[test]
 fn restart_restores_exact_feature_and_retains_saved_answer_for_guarded_replay() {
-    let (app, source_key, source_uid, feature_uid, answer_id) = failed_saved_answer_recovery(false);
+    let (app, source_key, source_uid, feature_uid, answer_id) = failed_saved_answer_recovery(None);
     assert!(
         matches!(&app.screen, Screen::Connected(project) if project.state.active_features.is_empty())
     );

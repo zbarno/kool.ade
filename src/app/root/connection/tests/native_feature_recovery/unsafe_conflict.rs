@@ -6,8 +6,20 @@ use super::*;
 /// recovery task. Local Git/planning/chat stores only; no provider, Docker, or
 /// network; moderate app fixture setup.
 #[test]
-fn restart_conflict_keeps_saved_answer_and_one_actionable_recovery() {
-    let (app, source_key, source_uid, feature_uid, answer_id) = failed_saved_answer_recovery(true);
+fn replacement_status_conflict_keeps_saved_answer_and_one_actionable_recovery() {
+    for replacement_status in [
+        crate::domain::ChangeStatus::Draft,
+        crate::domain::ChangeStatus::Ready,
+        crate::domain::ChangeStatus::Implemented,
+        crate::domain::ChangeStatus::Abandoned,
+    ] {
+        assert_conflict_is_blocked(replacement_status);
+    }
+}
+
+fn assert_conflict_is_blocked(replacement_status: crate::domain::ChangeStatus) {
+    let (app, source_key, source_uid, feature_uid, answer_id) =
+        failed_saved_answer_recovery(Some(replacement_status));
     let mut restarted = restart_fixture(app);
     let Screen::Connected(project) = &mut restarted.screen else {
         unreachable!()
@@ -15,11 +27,8 @@ fn restart_conflict_keeps_saved_answer_and_one_actionable_recovery() {
     project.planning_work =
         crate::core::planning_work::load(&project.state.planning_store).unwrap();
     project.task_chats.ensure_loaded(&project.chat_slug);
-    let conflicting_uid =
-        crate::domain::ArtifactIdentity::from_markdown(&project.state.active_features[0].1)
-            .unwrap()
-            .unwrap()
-            .uid;
+    let conflicting_metadata = replacement_metadata(project);
+    let conflicting_uid = conflicting_metadata.uid.clone();
     assert_ne!(conflicting_uid, feature_uid);
 
     crate::app::manager::operational_recovery::advance(project);
@@ -75,12 +84,17 @@ fn restart_conflict_keeps_saved_answer_and_one_actionable_recovery() {
         [answer_id.as_str()],
         "unsafe identity recovery preserves the exact saved answer"
     );
-    assert!(project.state.active_features.iter().any(|(_, body)| {
-        crate::domain::ArtifactIdentity::from_markdown(body)
-            .ok()
-            .flatten()
-            .is_some_and(|identity| identity.uid == conflicting_uid)
-    }));
+    let retained_metadata = replacement_metadata(project);
+    assert_eq!(retained_metadata.uid, conflicting_uid);
+    assert_eq!(retained_metadata.status, replacement_status);
+    if replacement_status.is_terminal() {
+        assert!(project.state.active_features.iter().all(|(_, body)| {
+            crate::domain::ArtifactIdentity::from_markdown(body)
+                .ok()
+                .flatten()
+                .is_none_or(|identity| identity.uid != conflicting_uid)
+        }));
+    }
     crate::app::manager::operational_recovery::advance(project);
     project.planning_work =
         crate::core::planning_work::load(&project.state.planning_store).unwrap();
@@ -96,4 +110,18 @@ fn restart_conflict_keeps_saved_answer_and_one_actionable_recovery() {
     assert_eq!(recoveries.len(), 1, "identity conflict does not retry-loop");
     assert_eq!(recoveries[0].uid, recovery_uid);
     assert_eq!(recoveries[0].status, WorkStatus::NeedsAttention);
+}
+
+fn replacement_metadata(project: &crate::app::session::Project) -> crate::domain::ChangeMetadata {
+    let draft = crate::core::apply::load_current(&project.state.planning_store)
+        .unwrap()
+        .expect("conflicting replacement draft remains durable");
+    let markdown = draft
+        .changes
+        .iter()
+        .find(|change| change.document_id == "feature:F1")
+        .expect("replacement feature remains in the draft")
+        .content
+        .as_str();
+    crate::domain::ChangeMetadata::require_markdown(markdown).unwrap()
 }
