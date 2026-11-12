@@ -2,7 +2,6 @@ use super::super::super::*;
 use crate::app::root::board_tests::support::restart_fixture;
 use crate::core::planning_work::{self, Work, WorkKind, WorkStatus};
 use crate::persistence::execution_records;
-use std::process::Command;
 
 #[path = "restart_recovery/persistence.rs"]
 mod persistence;
@@ -10,29 +9,21 @@ mod persistence;
 mod plan_snapshot;
 #[path = "restart_recovery/resume.rs"]
 mod resume;
-use persistence::reload_task_documents;
+use persistence::{git, reload_task_documents};
 
-fn git(root: &std::path::Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "git command failed");
-    String::from_utf8(output.stdout).unwrap().trim().to_owned()
-}
-
-/// Production boundary: app restart reloads the real PlanningStore and queue,
-/// while operator-local approvals and execution locks live outside the code
-/// clone. This checks durable state and worker admission across that boundary;
-/// a unit test of a serializer cannot prove the app reloads the same roots.
-/// It uses local Git and temporary files only. No Docker or network is needed;
-/// setup is moderate because it creates two clones and a connected app fixture.
+/// Production boundary: the app reloads persisted work while a helper process
+/// holds the real task execution lease across restart. Only the production
+/// admission path proves duplicate execution is fenced and the same task resumes.
+/// Local Git/files only, no Docker/network; moderate two-clone fixture setup.
 #[test]
 fn restart_recovers_partial_task_work_without_duplicate_child_or_false_completion() {
+    if resume::run_worker_lease_helper_if_requested() {
+        return;
+    }
     let _environment = crate::test_support::lock_process_environment();
     let home = std::env::temp_dir().join(format!("koolade-restart-{}", uuid::Uuid::new_v4()));
-    let _home = crate::test_support::KooladeHomeGuard::set(&home);
+    std::fs::create_dir_all(&home).expect("create isolated worker test home");
+    let _home = resume::register_isolated_worker_home(&home);
     let _shield = crate::core::gitops::test_support::shield("restart-task-recovery");
     let mut app = crate::app::root::board_tests::support::fixture();
     let (repo, planning_store) = match &app.screen {
@@ -103,9 +94,7 @@ fn restart_recovers_partial_task_work_without_duplicate_child_or_false_completio
     .unwrap();
 
     let active_task_id = tasks[0].uid.clone();
-    let task_lock = execution_records::try_task_lock(&active_task_id)
-        .unwrap()
-        .expect("first worker acquires the active child");
+    let task_lock = resume::WorkerProcessLease::spawn(&active_task_id);
     let Screen::Connected(project) = &mut app.screen else {
         panic!("fixture must be connected")
     };

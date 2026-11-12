@@ -9,6 +9,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "resume/worker_lease.rs"]
+mod worker_lease;
+pub(in crate::app::root::board_tests::queue_execution::concurrent_workers::restart_recovery) use worker_lease::{
+    WorkerProcessLease, register_isolated_worker_home, run_worker_lease_helper_if_requested,
+};
+
 struct WorkerAttempt {
     task_id: String,
     acquired_lease: bool,
@@ -89,7 +95,7 @@ pub(super) fn exercise_task_details_resume(
     task_id: &str,
     clone_path: &Path,
     source_sha: &str,
-    old_worker_lease: std::fs::File,
+    old_worker_lease: WorkerProcessLease,
 ) {
     // An unrelated optional VM setup item remains open while this ordinary
     // approved task resumes. This is the dispatch-boundary regression for
@@ -148,7 +154,7 @@ pub(super) fn exercise_task_details_resume(
     );
     assert_pinned_interrupted_state(app, ticket, task_id, clone_path, source_sha);
 
-    drop(old_worker_lease);
+    old_worker_lease.release();
     let (attempt_tx, attempt_rx) = mpsc::channel();
     let release = Arc::new(Barrier::new(2));
     app.task_harness = Some(Box::new(LeaseProbeHarness {
