@@ -241,12 +241,15 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
 
         let launch = action(
             &session,
-            0,
+            1,
             ComputerOperationV1::LaunchAllowedApp,
             ComputerActionPayloadV1::LaunchApp {
                 app_id: "chromium".into(),
             },
         );
+        launch
+            .validate_as(ComputerActionActorV1::Agent, &session, unix_time_ms()?)
+            .map_err(|reason| format!("local launch action validation: {reason}"))?;
         let launch_result = authority
             .execute(
                 &mut channel,
@@ -256,9 +259,12 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
                 unix_time_ms()?,
             )
             .map_err(|error| format!("Chromium launch action: {error:?}"))?;
-        let launch_frame = launch_result
-            .observation
-            .ok_or("Chromium launch returned no guest frame")?;
+        let launch_frame = launch_result.observation.ok_or_else(|| {
+            format!(
+                "Chromium launch returned no guest frame (result={:?})",
+                launch_result.reply.result
+            )
+        })?;
         if launch_frame.width_px == 0
             || launch_frame.height_px == 0
             || launch_frame.screenshot_png_base64.is_empty()
@@ -268,7 +274,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
 
         let observe = action(
             &session,
-            1,
+            2,
             ComputerOperationV1::ObserveScreen,
             ComputerActionPayloadV1::ObserveScreen,
         );
