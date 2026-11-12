@@ -143,7 +143,7 @@ fn mixed_taskintent_graphs_converge_only_the_unowned_stranded_cycle() {
                 .iter()
                 .filter(|work| work.key.starts_with("task:manager-liveness:"))
                 .all(|work| work.parent_uid.as_deref() != Some(uid.as_str())),
-            "non-stranded cycle {uid} must not receive a duplicate liveness action"
+            "non-stranded cycle must not receive a duplicate liveness action"
         );
     }
 }
