@@ -65,8 +65,10 @@ impl ExecutionError {
     /// This describes the error only; callers must decide whether retrying
     /// is safe based on whether user work may already have started.
     pub fn is_local_docker_health_disconnect(&self) -> bool {
-        self.kind == ExecutionErrorKind::EnvironmentUnavailable
-            && self.message == LOCAL_DOCKER_HEALTH_DISCONNECTED
+        matches!(
+            self.kind,
+            ExecutionErrorKind::EnvironmentUnavailable | ExecutionErrorKind::WorkerDisconnected
+        ) && self.message == LOCAL_DOCKER_HEALTH_DISCONNECTED
     }
 
     /// A retryable health disconnect from the readiness probe before an
@@ -158,6 +160,22 @@ mod tests {
                 true,
             )
             .is_retryable_local_docker_health_disconnect()
+        );
+        assert!(
+            ExecutionError::new(
+                ExecutionErrorKind::WorkerDisconnected,
+                LOCAL_DOCKER_HEALTH_DISCONNECTED,
+                false,
+            )
+            .is_local_docker_health_disconnect()
+        );
+        assert!(
+            !ExecutionError::new(
+                ExecutionErrorKind::WorkerDisconnected,
+                "Docker Engine operation failed or disconnected",
+                true,
+            )
+            .is_local_docker_health_disconnect()
         );
     }
 }
