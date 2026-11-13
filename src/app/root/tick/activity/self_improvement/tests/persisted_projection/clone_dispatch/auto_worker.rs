@@ -174,45 +174,7 @@ pub(super) fn dispatch_and_verify(
             });
         }
         if std::time::Instant::now() >= deadline {
-            let crate::app::root::Screen::Connected(project) = &app.screen else {
-                panic!("the app disconnected before the worker completed");
-            };
-            panic!(
-                "approved task did not complete: invoked={worker_observation:?}, reviewer_waiting={reviewer_waiting}, review_stage_observed={review_stage_observed}, lifecycle_phase={:?}, run_phase={:?}, run_target=({:?},{:?},{:?},{:?}), implementation={:?}, queue_running={}, queue_error={}, blocked={:?}, active={:?}, states={:?}, pending={:?}",
-                lifecycle_task.phase,
-                projected.phase,
-                projected.target_repository_uid,
-                projected.source_sha,
-                projected.source_ref,
-                projected.destination_ref,
-                project
-                    .implementation_states
-                    .values()
-                    .map(|state| (
-                        state.task_uid.as_deref(),
-                        state.status,
-                        state.task_repository_kind,
-                        state.task_repository_ready,
-                        state.verified_head.as_deref(),
-                        state.task_repositories.contains(&state.task_repository),
-                        state.repository_id.as_deref(),
-                        state.repository_identity.as_deref(),
-                        state.source_commit.as_deref(),
-                        state.source_branch.as_deref(),
-                        state.destination_branch.as_deref()
-                    ))
-                    .collect::<Vec<_>>(),
-                project.queue.running,
-                project.queue.last_error,
-                project.queue.blocked,
-                project.active_implementations.keys().collect::<Vec<_>>(),
-                project
-                    .implementation_states
-                    .iter()
-                    .map(|(ticket, state)| (ticket, state.status, &state.detail))
-                    .collect::<Vec<_>>(),
-                project.activity.pending,
-            );
+            panic!("approved task did not reach independent review in time");
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     };
@@ -220,7 +182,10 @@ pub(super) fn dispatch_and_verify(
         review_stage_observed,
         "Reviewing was not observable before the independent review receipt"
     );
-    assert_eq!(reported_uid, task_uid);
+    assert!(
+        reported_uid == task_uid,
+        "the worker receives the exact approved task UID"
+    );
     assert_eq!(
         std::fs::read_to_string(task_repo.join("lifecycle-worker-output.txt")).unwrap(),
         "worker completed the approved task\n"
