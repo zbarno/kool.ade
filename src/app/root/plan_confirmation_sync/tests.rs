@@ -25,7 +25,7 @@ fn git(code_root: &std::path::Path, args: &[&str]) {
         .args(args)
         .output()
         .expect("git ran");
-    assert!(out.status.success(), "git {args:?} failed");
+    assert!(out.status.success(), "git fixture command failed");
 }
 
 struct Repo {
