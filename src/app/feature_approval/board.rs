@@ -68,7 +68,7 @@ impl KooladeApp {
             crate::core::planning_work::WorkStatus::NeedsAttention
         };
         let detail = if approved {
-            "Approved: the independent PlanReviewer approved this exact plan snapshot. Task generation is ready when requested.".to_owned()
+            "Approved: the independent PlanReviewer approved this exact plan snapshot. Task generation starts automatically once required repository Git intents are approved.".to_owned()
         } else if reviewing {
             "Blocked: the independent PlanReviewer is reviewing the exact confirmed plan snapshot."
                 .to_owned()

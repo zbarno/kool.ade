@@ -212,7 +212,21 @@ impl KooladeApp {
         if let Some(ready) = planner_generation_readiness {
             self.continue_feature_generation(ready);
         }
+        let next_task_generation = match &self.screen {
+            Screen::Connected(project) => {
+                task_generation::next_approved(project, self.task_harness.is_some())
+            }
+            Screen::Welcome => None,
+        };
+        if let Some((work_key, feature_id)) = next_task_generation {
+            self.start_task_generation(&work_key, &feature_id);
+        }
     }
+}
+
+#[cfg(test)]
+pub(crate) fn advance_for_test(app: &mut KooladeApp) {
+    app.advance_activity();
 }
 
 impl KooladeApp {
@@ -248,6 +262,7 @@ mod reconcile;
 pub(crate) mod runtime_qa;
 mod self_improvement;
 pub(crate) mod spec_reconciliation;
+mod task_generation;
 
 use clarification::advance_clarification_planner;
 use code_review_arbitration::advance_code_review_arbitration;

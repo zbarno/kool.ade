@@ -15,7 +15,7 @@ pub(crate) use routing::configured_harness_for_task;
 pub(crate) use routing::selected_harness_route;
 pub(crate) use routing::{
     CapabilityRefreshRouteState, capability_refresh_route_state, configured_harness_for_project,
-    configured_harness_for_project_task,
+    configured_harness_for_project_task, has_selected_route_for_project_task,
 };
 #[cfg(test)]
 use wrappers::{ImplementationQaHarness, RoutedHarness, UnavailableHarness};

@@ -15,9 +15,10 @@ mod plan_choice;
 mod request_changes;
 
 #[test]
-fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request() {
-    // Production boundary: Board card selection opens the feature's Task Details conversation surface.
-    // Invariant: plan confirmation stays on the existing feature thread and its explicit action remains visible; a command-level approval test cannot prove the rendered Board-to-details route.
+fn board_approval_dispatches_task_generation_after_required_approvals() {
+    // Production boundary: the app tick dispatches task generation after the
+    // plan and repository Git intent are explicitly approved. Reducer tests
+    // cannot prove the guarded work card reaches the production turn launcher.
     // External dependencies: none. Setup cost: one temporary Git project plus egui frames.
     let _shield = crate::core::gitops::test_support::shield("feature-approval");
     let (mut app, root, review) = setup();
@@ -65,7 +66,10 @@ fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request(
     );
     assert!(matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_none()));
     approve_test_git_intent(&mut app, &generation_key, "CHG-004");
-    app.start_task_generation(&generation_key, "CHG-004");
+    if let Screen::Connected(project) = &mut app.screen {
+        project.activity.pending.clear();
+    }
+    crate::app::root::tick::activity::advance_for_test(&mut app);
     assert!(
         matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_some()),
         "task generation should start after explicit Git intent approval: {:?}",

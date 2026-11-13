@@ -134,6 +134,30 @@ pub(crate) fn selected_harness_route<'a>(
     selected.map(|id| (id, route.and_then(|route| route.model.as_deref())))
 }
 
+pub(crate) fn has_selected_route_for_project_task(
+    settings: &crate::persistence::harness_settings::HarnessSettings,
+    project_routes: &std::collections::BTreeMap<
+        String,
+        crate::persistence::harness_settings::WorkRoute,
+    >,
+    work_type: &str,
+    task_routes: &std::collections::BTreeMap<
+        String,
+        crate::persistence::harness_settings::WorkRoute,
+    >,
+) -> bool {
+    let legacy = (std::env::var(crate::harness::CODEX_HARNESS_ENV).as_deref() == Ok("codex"))
+        .then_some("codex");
+    let (selected, route) = route_selection(
+        settings,
+        project_routes,
+        Some(work_type),
+        legacy,
+        task_routes.get(work_type),
+    );
+    selected.is_some() || route.is_some()
+}
+
 pub(super) fn routed_harness<'a>(
     settings: &'a crate::persistence::harness_settings::HarnessSettings,
     project_routes: &'a std::collections::BTreeMap<
