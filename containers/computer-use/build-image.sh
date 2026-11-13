@@ -308,13 +308,12 @@ Requires=koolade-computer-use-bootstrap.service
 [Service]
 Type=simple
 User=root
-Group=root
+Group=koolade-agent
 ExecStart=/usr/lib/koolade/computer-use-app-helper
 Restart=on-failure
 RestartSec=1
 RuntimeDirectory=koolade-app-helper
 RuntimeDirectoryMode=0750
-ExecStartPre=/usr/bin/chgrp koolade-agent /run/koolade-app-helper
 NoNewPrivileges=yes
 # The helper needs these capabilities for socket ownership and to drop
 # approved application children to koolade.
