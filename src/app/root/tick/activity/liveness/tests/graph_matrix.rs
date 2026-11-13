@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "graph_matrix/failure_convergence.rs"]
+mod failure_convergence;
+
 /// Production boundary: repeated app liveness sweeps classify multiple
 /// persisted TaskIntent cycles and create one durable recovery for each of
 /// three stranded statuses while preserving owned cycles. Reducer tests cannot
