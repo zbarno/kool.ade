@@ -13,6 +13,8 @@ use crate::core::planning_work::{Work, WorkKind, WorkStatus};
 
 #[path = "tests/answer_reconciliation.rs"]
 mod answer_reconciliation;
+#[path = "tests/reconciliation_failure.rs"]
+mod reconciliation_failure;
 #[path = "tests/restart_stale_snapshot.rs"]
 mod restart_stale_snapshot;
 #[path = "tests/save_failure.rs"]

@@ -61,6 +61,25 @@ pub(crate) fn sync_for_announcement(project: &mut Project) -> Effects {
 }
 
 pub(crate) fn sync_with_prompt_claim(project: &mut Project, allow_prompt_claim: bool) -> Effects {
+    sync_with_reconciler(
+        project,
+        allow_prompt_claim,
+        |state, work, busy, allow_claim| {
+            crate::core::planning_work::reconcile_with_prompt_claim(state, work, busy, allow_claim)
+        },
+    )
+}
+
+fn sync_with_reconciler(
+    project: &mut Project,
+    allow_prompt_claim: bool,
+    reconcile: impl FnOnce(
+        &crate::core::state::PlannerState,
+        &mut Vec<crate::core::planning_work::Work>,
+        &std::collections::BTreeSet<String>,
+        bool,
+    ) -> anyhow::Result<crate::core::planning_work::PlanConfirmationReport>,
+) -> Effects {
     if project.activity.pending_planning_work
         && let Err(error) = project.save_planning_work()
     {
@@ -72,15 +91,28 @@ pub(crate) fn sync_with_prompt_claim(project: &mut Project, allow_prompt_claim: 
         };
     }
     let busy = busy_keys(project);
-    let Ok(report) = crate::core::planning_work::reconcile_with_prompt_claim(
+    let mut reconciled_work = project.planning_work.clone();
+    let report = match reconcile(
         &project.state,
-        &mut project.planning_work,
+        &mut reconciled_work,
         &busy,
         allow_prompt_claim,
-    ) else {
-        // Fail closed: an unreadable plan leaves the card untouched rather
-        // than guessing.
-        return Effects::none();
+    ) {
+        Ok(report) => {
+            project.planning_work = reconciled_work;
+            report
+        }
+        Err(_) => {
+            // Fail closed: keep the existing card untouched and retry from
+            // the next activity pass instead of making a silent no-op.
+            project.activity.pending_planning_work = true;
+            return Effects {
+                announcements: vec![
+                    "Couldn't refresh the plan review card from current evidence. The existing card is unchanged; Kool.ad/e will retry automatically.".into(),
+                ],
+                evaluations_wanted: Vec::new(),
+            };
+        }
     };
     if !report.changed {
         return Effects::none();

@@ -87,9 +87,12 @@ not be inferred from a green unit test of an individual reducer:
    succeeded, but did not exercise stale-proof refresh and app resumption
    together. Real provider verification and worker execution through a full
    application restart remain to be established.
-3. A plan-confirmation reconciliation error currently returns no effects. The
-   safe no-mutation behavior is correct, but this seam alone does not guarantee
-   a durable user-visible blocker for every storage or validation failure.
+3. Plan-confirmation reconciliation now runs on a copy of planning work and
+   commits only on success. An app-seam fault injection mutates the working
+   copy and then fails; the live card stays unchanged, the app announces retry,
+   and the next successful pass creates one durable card and emits its needed
+   readiness evaluation. Existing save-failure injection separately proves
+   writes retry after persistence recovers.
 4. The expanded app-restart acceptance now combines a pending saved answer, a
    worker process holding the exact task lease, a cancelled sibling, partial
    clone progress, approved source SHAs, a stale plan snapshot hash, and changed
