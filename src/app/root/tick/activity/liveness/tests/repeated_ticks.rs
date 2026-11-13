@@ -22,8 +22,30 @@ fn repeated_app_ticks_keep_one_recovery_action_and_claim() {
     set_cycle(&mut root);
     project.planning_work = vec![root];
 
-    app.advance_activity();
-    app.advance_activity();
+    let context = egui::Context::default();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        // Exercise real app ticks so any higher-priority planner work is
+        // collected before the liveness recovery claims its normal turn slot.
+        app.tick(0.016, &context);
+        let crate::app::root::Screen::Connected(project) = &app.screen else {
+            unreachable!()
+        };
+        let recoveries = project
+            .planning_work
+            .iter()
+            .filter(|work| work.key.starts_with("task:manager-liveness:"))
+            .collect::<Vec<_>>();
+        assert_eq!(recoveries.len(), 1);
+        if recoveries[0].status == WorkStatus::InProgress {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "repeated app ticks never claimed the single durable recovery action"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
 
     let crate::app::root::Screen::Connected(project) = &app.screen else {
         unreachable!()
