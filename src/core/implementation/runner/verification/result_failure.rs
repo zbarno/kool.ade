@@ -41,19 +41,25 @@ mod tests {
 
     #[test]
     fn completed_result_health_disconnect_remains_typed_as_unknown() {
-        let failure = crate::execution::errors::ExecutionError::new(
+        for kind in [
             crate::execution::errors::ExecutionErrorKind::EnvironmentUnavailable,
-            crate::execution::errors::LOCAL_DOCKER_HEALTH_DISCONNECTED,
-            false,
-        );
-        let classified = classify_result_failure(Some(&failure)).unwrap();
+            crate::execution::errors::ExecutionErrorKind::WorkerDisconnected,
+        ] {
+            let failure = crate::execution::errors::ExecutionError::new(
+                kind,
+                crate::execution::errors::LOCAL_DOCKER_HEALTH_DISCONNECTED,
+                false,
+            );
+            let classified = classify_result_failure(Some(&failure)).unwrap();
 
-        assert!(
-            classified
-                .downcast_ref::<VerificationOutcomeUnknown>()
-                .is_some()
-        );
-        assert!(classified.to_string().contains("outcome is unknown"));
+            assert!(
+                classified
+                    .downcast_ref::<VerificationOutcomeUnknown>()
+                    .is_some(),
+                "health disconnect reported as {kind:?} must stay uncertain"
+            );
+            assert!(classified.to_string().contains("outcome is unknown"));
+        }
     }
 
     #[test]
