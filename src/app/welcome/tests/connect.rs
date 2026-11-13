@@ -1,5 +1,7 @@
 use super::super::*;
 use crate::error::AppError;
+#[path = "connect/project_retention.rs"]
+mod project_retention;
 #[path = "connect/restart_reconcile.rs"]
 mod restart_reconcile;
 #[test]
