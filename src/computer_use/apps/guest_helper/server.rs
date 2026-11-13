@@ -145,12 +145,18 @@ fn authorized_peer(stream: &UnixStream) -> bool {
         return false;
     }
     let agent = unsafe { libc::getpwnam(c"koolade-agent".as_ptr()) };
-    let desktop = unsafe { libc::getpwnam(c"koolade".as_ptr()) };
-    if agent.is_null() || desktop.is_null() {
+    if agent.is_null() {
         eprintln!("guest app helper: peer account lookup failed");
         return false;
     }
+    // libc may return both lookups through the same static `struct passwd`
+    // buffer, so copy the first UID before looking up the desktop account.
     let agent_uid = unsafe { (*agent).pw_uid };
+    let desktop = unsafe { libc::getpwnam(c"koolade".as_ptr()) };
+    if desktop.is_null() {
+        eprintln!("guest app helper: peer account lookup failed");
+        return false;
+    }
     let desktop_uid = unsafe { (*desktop).pw_uid };
     let peer_matches_agent = credentials.uid == agent_uid;
     let peer_matches_desktop = credentials.uid == desktop_uid;
