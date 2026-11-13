@@ -1,5 +1,5 @@
 /// Production boundary: two completed Manager results from stale app snapshots
-/// enter consecutive full app activity ticks with the same reviewed finding.
+/// enter full app activity ticks across restart with the same reviewed finding.
 /// Direct disposition-store tests cannot prove the Manager callback rejects
 /// the stale second output without creating another action. Uses one temporary
 /// Git repo and private PlanningStore; no provider, Docker, SSH, or network.
@@ -40,9 +40,16 @@ fn duplicate_manager_outputs_create_one_durable_plan_disposition() {
     let mut app = crate::app::root::board_tests::fixture();
     app.screen = crate::app::root::Screen::Connected(Box::new(first));
     app.advance_activity();
-    app.screen = crate::app::root::Screen::Connected(Box::new(second));
-    app.advance_activity();
-    let crate::app::root::Screen::Connected(second) = app.screen else {
+    let mut restarted = crate::app::root::board_tests::restart_fixture(app);
+    let crate::app::root::Screen::Connected(project) = &mut restarted.screen else {
+        unreachable!()
+    };
+    project.activity.manager_history =
+        crate::persistence::manager_activity::load(&project.chat_slug);
+    project.activity.last_update = Some(Instant::now());
+    project.activity.manager = second.activity.manager.take();
+    restarted.advance_activity();
+    let crate::app::root::Screen::Connected(restarted) = restarted.screen else {
         unreachable!()
     };
 
@@ -63,10 +70,16 @@ fn duplicate_manager_outputs_create_one_durable_plan_disposition() {
         dispositions[0].key.contains(&target_revision),
         "the surviving action stays bound to the reviewed revision"
     );
-    assert!(
-        second.activity.manager_history.iter().any(|message| message
-            .text
-            .contains("The reviewed plan finding needs repair.")),
+    assert_eq!(
+        restarted
+            .activity
+            .manager_history
+            .iter()
+            .filter(|message| message
+                .text
+                .contains("The reviewed plan finding needs repair."))
+            .count(),
+        2,
         "the second Manager result is recorded even though its action is stale"
     );
 
