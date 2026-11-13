@@ -137,6 +137,8 @@ pub(super) fn independent_plan_review(
     feature_uid: &str,
     snapshot_uid: &str,
     hash: &str,
+    author_run_id: &str,
+    author_session_id: &str,
 ) -> GateReceipt {
     use crate::harness::prompt_catalog::{PromptRole, RoleInputV1, RolePayloadV1, render};
     let manifest = render(&RoleInputV1 {
@@ -154,9 +156,9 @@ pub(super) fn independent_plan_review(
         payload: RolePayloadV1::Review {
             subject_revision: "fixture-revision".into(),
             subject_hash: hash.into(),
-            author_run_id: "00000000-0000-4000-8000-000000000006".into(),
+            author_run_id: author_run_id.into(),
             reviewer_run_id: "00000000-0000-4000-8000-000000000007".into(),
-            author_session_id: Some("00000000-0000-4000-8000-000000000008".into()),
+            author_session_id: Some(author_session_id.into()),
             reviewer_session_id: Some("00000000-0000-4000-8000-000000000009".into()),
             requirements_matrix: vec!["fixture requirement".into()],
             explicit_exclusions: vec![],
@@ -175,8 +177,8 @@ pub(super) fn independent_plan_review(
         prompt_sha256: Some(manifest.identity_sha256()),
         prompt_manifest: Some(manifest),
         reviewer_run_id: Some("00000000-0000-4000-8000-000000000007".into()),
-        author_run_id: Some("00000000-0000-4000-8000-000000000006".into()),
+        author_run_id: Some(author_run_id.into()),
         reviewer_session_id: Some("00000000-0000-4000-8000-000000000009".into()),
-        author_session_id: Some("00000000-0000-4000-8000-000000000008".into()),
+        author_session_id: Some(author_session_id.into()),
     }
 }

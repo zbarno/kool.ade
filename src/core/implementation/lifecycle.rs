@@ -2,6 +2,9 @@ use super::*;
 use crate::artifacts::planning_store::PlanningStore;
 use sha2::{Digest, Sha256};
 
+mod task_progress;
+pub(in crate::core::implementation) use task_progress::record_implementation_finished;
+
 #[cfg(test)]
 #[path = "lifecycle/tests.rs"]
 mod tests;
@@ -43,6 +46,7 @@ pub(super) fn execute(
     }
     integration::integrate_subtasks(planning_store, context.state_root, dir, state, runner)?;
     verification::prepare_verified(
+        Some(planning_store),
         repo,
         dir,
         state,

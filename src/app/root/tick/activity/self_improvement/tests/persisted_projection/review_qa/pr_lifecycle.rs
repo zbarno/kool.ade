@@ -125,8 +125,20 @@ pub(super) fn verify_persisted_pr_state_projection(
         "repeated scheduler ticks preserve exactly the typed user approval"
     );
 
-    let head_sha = "d".repeat(40);
-    let base_sha = "e".repeat(40);
+    let (head_sha, base_sha) = {
+        let crate::app::root::Screen::Connected(project) = &app.screen else {
+            panic!("fixture should remain connected")
+        };
+        let implementation = project
+            .implementation_states
+            .values()
+            .find(|state| state.task_uid.as_deref() == Some(task_uid))
+            .expect("implementation state for the completed task");
+        (
+            implementation.verified_head.clone().expect("verified head"),
+            implementation.base_commit.clone(),
+        )
+    };
     let pr_url = "https://github.com/zbarno/kool.ade/pull/999999";
     let opened = lifecycle
         .record_pr_publication_state(

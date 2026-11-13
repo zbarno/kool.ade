@@ -1,4 +1,5 @@
 use super::*;
+use sha2::{Digest, Sha256};
 
 pub(super) fn synchronize_parent_progress(
     project: &Project,
@@ -82,9 +83,16 @@ pub(super) fn synchronize_parent_progress(
             != Some(&progress)
         {
             let revision = pr.as_ref().map_or(0, |record| record.revision);
+            let progress_sha256 = format!(
+                "{:x}",
+                Sha256::digest(serde_json::to_vec(&progress).map_err(|error| error.to_string())?,)
+            );
             let event_uid = super::transition_uid(
                 &run.run_uid,
-                &format!("parent-progress:{task_uid}:{}:{revision}", task.revision),
+                &format!(
+                    "parent-progress:v2:{task_uid}:{}:{revision}:{progress_sha256}",
+                    task.revision
+                ),
             )?;
             *run = runs
                 .apply_event(
@@ -93,7 +101,12 @@ pub(super) fn synchronize_parent_progress(
                     &event_uid,
                     Event::ParentTaskProgress(progress),
                 )
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| {
+                    format!(
+                        "parent progress for task {task_uid} at lifecycle revision {} and PR revision {revision}: {error}",
+                        task.revision
+                    )
+                })?;
         }
     }
     Ok(())

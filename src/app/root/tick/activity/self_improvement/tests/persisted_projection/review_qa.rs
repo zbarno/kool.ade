@@ -12,16 +12,30 @@ pub(super) fn verify_reviewer_and_qa_projection(
     task_uid: &str,
 ) {
     let mut task = lifecycle.load_task(task_uid).unwrap();
-    task = apply_task(lifecycle, &task, TaskEvent::Start);
-    let implementation_sha256 = "c".repeat(64);
-    task = apply_task(
-        lifecycle,
-        &task,
-        TaskEvent::ImplementationFinished {
-            code_sha256: implementation_sha256.clone(),
-        },
-    );
-    let head_sha = "d".repeat(40);
+    let implementation_sha256 = task
+        .implementation_sha256
+        .clone()
+        .expect("the local worker completion persists its code hash");
+    assert_eq!(task.phase, TaskPhase::AwaitingRuntimeQa);
+    let code_review = task
+        .code_review
+        .as_ref()
+        .expect("the production implementation path persists independent code review");
+    let code_author_run = code_review.author_run_id.clone().unwrap();
+    let code_author_session = code_review.author_session_id.clone().unwrap();
+    let review_subject_sha256 = task
+        .reviewed_code_subject_sha256
+        .clone()
+        .expect("the task lifecycle stores the reviewed code subject hash");
+    let head_sha = match &app.screen {
+        crate::app::root::Screen::Connected(project) => project
+            .implementation_states
+            .values()
+            .find(|state| state.task_uid.as_deref() == Some(task_uid))
+            .and_then(|state| state.verified_head.clone())
+            .expect("the completed local worker has a verified head"),
+        crate::app::root::Screen::Welcome => panic!("fixture should remain connected"),
+    };
     let mut current_qa = reviewer_receipt(
         PromptRole::RuntimeQaReviewerV3,
         &task,
@@ -92,37 +106,13 @@ pub(super) fn verify_reviewer_and_qa_projection(
 
     super::synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
     let run = runs.load(run_uid).unwrap();
-    assert_eq!(run.phase, Phase::Reviewing);
+    assert_eq!(run.phase, Phase::Qa);
     assert_eq!(
         run.implementation_head_sha.as_deref(),
         Some(head_sha.as_str())
     );
-    assert!(run.code_review_uids.is_empty());
-
-    let code_review = reviewer_receipt(
-        PromptRole::CodeReviewer,
-        &task,
-        &implementation_sha256,
-        &head_sha,
-        uuid::Uuid::new_v4().hyphenated().to_string(),
-        uuid::Uuid::new_v4().hyphenated().to_string(),
-    );
-    let code_author_run = code_review.author_run_id.clone().unwrap();
-    let code_author_session = code_review.author_session_id.clone().unwrap();
-    task = apply_task(
-        lifecycle,
-        &task,
-        TaskEvent::CodeReview {
-            receipt: code_review,
-            reviewed_head_sha: head_sha.clone(),
-            review_subject_sha256: "e".repeat(64),
-        },
-    );
-    assert_eq!(task.phase, TaskPhase::AwaitingRuntimeQa);
-    super::synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
-    let run = runs.load(run_uid).unwrap();
-    assert_eq!(run.phase, Phase::Qa);
     assert_eq!(run.code_review_uids.len(), 1);
+
     assert!(run.runtime_qa_uids.is_empty());
 
     let request = crate::runtime_qa::QaRunRequestV1 {
@@ -138,7 +128,7 @@ pub(super) fn verify_reviewer_and_qa_projection(
         code_head_sha: head_sha.clone(),
         build_artifact_sha256: "f".repeat(64),
         complete_diff_hash: implementation_sha256.clone(),
-        review_subject_sha256: "e".repeat(64),
+        review_subject_sha256,
         approved_spec_hash: task.approved_plan_sha256.clone(),
         requirement_ids: vec!["REQ-001".into()],
         acceptance_criteria: vec!["The reviewed behavior is ready.".into()],

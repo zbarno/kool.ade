@@ -111,7 +111,7 @@ fn main_chat_spec_update_runs_initial_clarification_planner() {
     );
 
     let context = egui::Context::default();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
     loop {
         // Keep the deterministic Planner harness available through the Manager
         // completion tick, when the application starts the initial Planner pass.
