@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "computer-use-images-v1-10-b9980f9d24de",
-  "catalogGeneration": 10,
-  "issuedAtUnixMs": 1794539031249,
-  "expiresAtUnixMs": 1802315031249,
+  "catalogVersion": "computer-use-images-v1-13-cb49a387ec16",
+  "catalogGeneration": 13,
+  "issuedAtUnixMs": 1794565771912,
+  "expiresAtUnixMs": 1802341771912,
   "signerKeyId": "76fe57c9-0102-424b-9bb2-90b7ca745006",
   "images": [
     {
@@ -64,6 +64,21 @@
       "build_attestation_sha256": "sha256:0d2f561c3aeb328c056235589eb56705ceb45d8ccd2b188c5b1b0cb13dacf006",
       "companion_protocol_version": 1,
       "companion_sha256": "sha256:0e21febb0bb124f3b171291f3dbf888341e259f3c33fedd11cd4641c0d319755",
+      "status": "revoked"
+    },
+    {
+      "architecture": "x86_64",
+      "image_digest": "sha256:66664eb1bbcea53a395eea976f2854a3e9fb26f0f62e1fbabaf72207e2da178b",
+      "image_size_bytes": 4294967296,
+      "artifact_size_bytes": 682360832,
+      "artifact_name": "koolade-computer-use-guest-x86_64.qcow2",
+      "guest_release": "debian-bookworm-40eb877965f7",
+      "source_revision": "40eb877965f7426042dc0fd2cc3b1dd824defcdc",
+      "build_recipe_sha256": "sha256:6385bc7102382c469f1095cdbc4a7db37386ae23d92537165649f3d03dc28fa1",
+      "sbom_sha256": "sha256:c24b767f1f4e7635a31372c2f341a44870843770cea2b6d3bdabb3e5a3681544",
+      "build_attestation_sha256": "sha256:2ca506ee0eb537ea74df724b675a7c1893461ad119478cb2ac0fcde72acae6ff",
+      "companion_protocol_version": 1,
+      "companion_sha256": "sha256:4ab1ca1f9f6c2aebdb6535b2648d52654fa5e85d7f4deb6e298b24e78da64097",
       "status": "revoked"
     },
     {
@@ -139,7 +154,7 @@
       "build_attestation_sha256": "sha256:7732f96dd809cf9dc4a4b27726c543d76787869a580c726c5300775ff78394df",
       "companion_protocol_version": 1,
       "companion_sha256": "sha256:30a2286c0e4c708c228cef54802fbbd79e1717ecd263da8b03c61c05dad2fa97",
-      "status": "approved"
+      "status": "revoked"
     },
     {
       "architecture": "x86_64",
@@ -155,7 +170,37 @@
       "companion_protocol_version": 1,
       "companion_sha256": "sha256:b17c5055b4d92eb3401ca859e09815584c0cae8191668707c7ef725cf09f0789",
       "status": "revoked"
+    },
+    {
+      "architecture": "x86_64",
+      "image_digest": "sha256:cb49a387ec16b242a6b48f0def5e72f9a187e9ea089cc0f3e3151f07f60f6c66",
+      "image_size_bytes": 4294967296,
+      "artifact_size_bytes": 682426368,
+      "artifact_name": "koolade-computer-use-guest-x86_64.qcow2",
+      "guest_release": "debian-bookworm-90d10eeb4cdc",
+      "source_revision": "90d10eeb4cdc5b7b76808b9ebf6bd5ffdf79490d",
+      "build_recipe_sha256": "sha256:339620613da104bf4f23897b41a092eb4076486feb4f70cb69d61707eaef355a",
+      "sbom_sha256": "sha256:c24b767f1f4e7635a31372c2f341a44870843770cea2b6d3bdabb3e5a3681544",
+      "build_attestation_sha256": "sha256:6f0d2ddf5c948ffb3c6feaab9058f79b304a24b0c35e7ec3837a322875e15970",
+      "companion_protocol_version": 1,
+      "companion_sha256": "sha256:0592af1a53ab8dcb86730d623596c23613b1a7ef28f597b58dd5c5eba91cd430",
+      "status": "approved"
+    },
+    {
+      "architecture": "x86_64",
+      "image_digest": "sha256:df072d333a323e36b1ea4ca0bb22f1a2bc4d1ec0705a1e1916639a6a7afdfccf",
+      "image_size_bytes": 4294967296,
+      "artifact_size_bytes": 682426368,
+      "artifact_name": "koolade-computer-use-guest-x86_64.qcow2",
+      "guest_release": "debian-bookworm-828589ce47a6",
+      "source_revision": "828589ce47a6a69ee94a2b9ebd84a0c730e64b12",
+      "build_recipe_sha256": "sha256:c3a191572ddc6c38bac31d0b4cd2c3052c8857ee0fbbb8aaa81da4950b7b5489",
+      "sbom_sha256": "sha256:c24b767f1f4e7635a31372c2f341a44870843770cea2b6d3bdabb3e5a3681544",
+      "build_attestation_sha256": "sha256:6d29ee75599514988fd262125d2f052dcc7ab8299dc2492968974a4db40c2737",
+      "companion_protocol_version": 1,
+      "companion_sha256": "sha256:15b5face4e2f0b0c03cf8e74d8341ab9ddbe098a4885fcfcd20ed9244a3d5945",
+      "status": "revoked"
     }
   ],
-  "signatureHex": "0ddaa3e999bc6586e96fc5cfd928abb0e76448114d691c1529414661c18271dc4fa3bf49877a271d5ef48af0139995cb75fb0521e9f85d3b51661d5a4618a401"
+  "signatureHex": "dbce1aefdf3c2090d81f51500963d45d828181c68f04b1294bce60eb092c17af02faed1e5603842600236574d724eead6e746abba55229cfbb188204d3c5900a"
 }
