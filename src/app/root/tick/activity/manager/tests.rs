@@ -1,5 +1,7 @@
 use super::*;
 
+#[path = "tests/automatic_refresh_replay.rs"]
+mod automatic_refresh_replay;
 #[path = "tests/process_kill.rs"]
 mod process_kill;
 #[path = "tests/timeout_replay.rs"]
