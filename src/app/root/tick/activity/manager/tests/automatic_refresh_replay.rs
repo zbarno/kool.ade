@@ -234,6 +234,12 @@ exit 3
             1,
             "checkpoint dispatch occurs once"
         );
-        assert!(replayed_requests[0].contains("resume saved TaskIntent checkpoint"));
+        assert_eq!(
+            replayed_requests[0]
+                .matches("resume saved TaskIntent checkpoint")
+                .count(),
+            1,
+            "the saved checkpoint appears once in the replay request"
+        );
     });
 }
