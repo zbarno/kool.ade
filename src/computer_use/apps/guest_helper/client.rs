@@ -1,4 +1,7 @@
-use std::os::unix::net::UnixStream;
+use std::os::unix::{
+    fs::{FileTypeExt, MetadataExt},
+    net::UnixStream,
+};
 
 use crate::computer_use::{
     ComputerActionV1,
@@ -11,7 +14,10 @@ pub(crate) fn launch(app_id: &str) -> Result<(), GuestProtocolErrorV1> {
     let mut stream = match UnixStream::connect(super::protocol::SOCKET) {
         Ok(stream) => stream,
         Err(error) => {
-            record_launch_diagnostic(&format!("connect failed: {error}"));
+            record_launch_diagnostic(&format!(
+                "connect failed: {error}; {}",
+                socket_access_diagnostics()
+            ));
             return Err(GuestProtocolErrorV1::Io);
         }
     };
@@ -52,6 +58,46 @@ fn record_launch_diagnostic(message: &str) {
     if let Err(error) = std::fs::write(PATH, bounded.as_bytes()) {
         eprintln!("could not persist guest app helper client diagnostic: {error}");
     }
+}
+
+fn socket_access_diagnostics() -> String {
+    let credentials = std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status
+                .lines()
+                .find(|line| line.starts_with("Uid:") || line.starts_with("Gid:"))
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| {
+            format!("euid={} egid={}", unsafe { libc::geteuid() }, unsafe {
+                libc::getegid()
+            })
+        });
+    let groups = std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status
+                .lines()
+                .find(|line| line.starts_with("Groups:"))
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "supplementary groups unavailable".to_owned());
+    let paths = ["/run", "/run/koolade-app-helper", super::protocol::SOCKET]
+        .into_iter()
+        .map(|path| match std::fs::symlink_metadata(path) {
+            Ok(metadata) => format!(
+                "{path}:uid={},gid={},mode={:04o},socket={}",
+                metadata.uid(),
+                metadata.gid(),
+                metadata.mode() & 0o7777,
+                metadata.file_type().is_socket()
+            ),
+            Err(error) => format!("{path}:metadata-error={error}"),
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!("{credentials}; {groups}; {paths}")
 }
 
 pub(crate) fn manage(
