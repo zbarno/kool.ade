@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "computer-use-images-v1-11-66664eb1bbce",
-  "catalogGeneration": 11,
-  "issuedAtUnixMs": 1794546888960,
-  "expiresAtUnixMs": 1802322888960,
+  "catalogVersion": "computer-use-images-v1-12-df072d333a32",
+  "catalogGeneration": 12,
+  "issuedAtUnixMs": 1794554910235,
+  "expiresAtUnixMs": 1802330910235,
   "signerKeyId": "76fe57c9-0102-424b-9bb2-90b7ca745006",
   "images": [
     {
@@ -79,7 +79,7 @@
       "build_attestation_sha256": "sha256:2ca506ee0eb537ea74df724b675a7c1893461ad119478cb2ac0fcde72acae6ff",
       "companion_protocol_version": 1,
       "companion_sha256": "sha256:4ab1ca1f9f6c2aebdb6535b2648d52654fa5e85d7f4deb6e298b24e78da64097",
-      "status": "approved"
+      "status": "revoked"
     },
     {
       "architecture": "x86_64",
@@ -170,7 +170,22 @@
       "companion_protocol_version": 1,
       "companion_sha256": "sha256:b17c5055b4d92eb3401ca859e09815584c0cae8191668707c7ef725cf09f0789",
       "status": "revoked"
+    },
+    {
+      "architecture": "x86_64",
+      "image_digest": "sha256:df072d333a323e36b1ea4ca0bb22f1a2bc4d1ec0705a1e1916639a6a7afdfccf",
+      "image_size_bytes": 4294967296,
+      "artifact_size_bytes": 682426368,
+      "artifact_name": "koolade-computer-use-guest-x86_64.qcow2",
+      "guest_release": "debian-bookworm-828589ce47a6",
+      "source_revision": "828589ce47a6a69ee94a2b9ebd84a0c730e64b12",
+      "build_recipe_sha256": "sha256:c3a191572ddc6c38bac31d0b4cd2c3052c8857ee0fbbb8aaa81da4950b7b5489",
+      "sbom_sha256": "sha256:c24b767f1f4e7635a31372c2f341a44870843770cea2b6d3bdabb3e5a3681544",
+      "build_attestation_sha256": "sha256:6d29ee75599514988fd262125d2f052dcc7ab8299dc2492968974a4db40c2737",
+      "companion_protocol_version": 1,
+      "companion_sha256": "sha256:15b5face4e2f0b0c03cf8e74d8341ab9ddbe098a4885fcfcd20ed9244a3d5945",
+      "status": "approved"
     }
   ],
-  "signatureHex": "3ec136996246246abd4ec2ccc67d9e63d4795d7b720027e4de66ec7f68444ebea3e2bf2c0cb2247db1f8d723f45dae05af9e8b19a24fa73b673a0d20be41cc0a"
+  "signatureHex": "d206f23b18033b94a92db54f69d2d894e3866505f28e2a19536c8b766e622404a6b199e312484d80732d79de5263ffbf8b56bddce4a22b8ca4aee137ba3bbe06"
 }
