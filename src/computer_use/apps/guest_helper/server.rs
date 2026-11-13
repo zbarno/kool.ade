@@ -137,34 +137,24 @@ fn authorized_peer(stream: &UnixStream) -> bool {
         )
     };
     if credential_result != 0 {
-        eprintln!(
-            "guest app helper: SO_PEERCRED failed: {}",
-            std::io::Error::last_os_error()
-        );
+        eprintln!("guest app helper: SO_PEERCRED failed");
         return false;
     }
     if length as usize != std::mem::size_of::<libc::ucred>() {
-        eprintln!("guest app helper: SO_PEERCRED returned unexpected size {length}");
+        eprintln!("guest app helper: SO_PEERCRED returned an unexpected size");
         return false;
     }
     let agent = unsafe { libc::getpwnam(c"koolade-agent".as_ptr()) };
     let desktop = unsafe { libc::getpwnam(c"koolade".as_ptr()) };
     if agent.is_null() || desktop.is_null() {
-        eprintln!(
-            "guest app helper: peer account lookup failed (agent={}, desktop={})",
-            !agent.is_null(),
-            !desktop.is_null()
-        );
+        eprintln!("guest app helper: peer account lookup failed");
         return false;
     }
     let agent_uid = unsafe { (*agent).pw_uid };
     let desktop_uid = unsafe { (*desktop).pw_uid };
     let authorized = peer_uid_is_agent(credentials.uid, agent_uid, desktop_uid);
     if !authorized {
-        eprintln!(
-            "guest app helper: rejected peer uid={} (agent uid={}, desktop uid={})",
-            credentials.uid, agent_uid, desktop_uid
-        );
+        eprintln!("guest app helper: rejected Unix peer credentials");
     }
     authorized
 }
