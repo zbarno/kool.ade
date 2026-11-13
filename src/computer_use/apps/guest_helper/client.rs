@@ -8,20 +8,49 @@ use crate::computer_use::{
 use super::protocol::{ReplyV1, RequestV1, read_message, write_message};
 
 pub(crate) fn launch(app_id: &str) -> Result<(), GuestProtocolErrorV1> {
-    let mut stream =
-        UnixStream::connect(super::protocol::SOCKET).map_err(|_| GuestProtocolErrorV1::Io)?;
-    write_message(
+    let mut stream = match UnixStream::connect(super::protocol::SOCKET) {
+        Ok(stream) => stream,
+        Err(error) => {
+            record_launch_diagnostic(&format!("connect failed: {error}"));
+            return Err(GuestProtocolErrorV1::Io);
+        }
+    };
+    if let Err(error) = write_message(
         &mut stream,
         &RequestV1::Launch {
             app_id: app_id.to_owned(),
         },
-    )?;
-    let reply: ReplyV1 = read_message(&mut stream)?;
+    ) {
+        record_launch_diagnostic(&format!("request write failed: {error:?}"));
+        return Err(error);
+    }
+    let reply: ReplyV1 = match read_message(&mut stream) {
+        Ok(reply) => reply,
+        Err(error) => {
+            record_launch_diagnostic(&format!("reply read failed: {error:?}"));
+            return Err(error);
+        }
+    };
     match reply {
         ReplyV1::Completed => Ok(()),
         ReplyV1::Unsupported => Err(GuestProtocolErrorV1::UnsupportedCapability),
-        ReplyV1::Failed => Err(GuestProtocolErrorV1::Io),
-        _ => Err(GuestProtocolErrorV1::Malformed),
+        ReplyV1::Failed => {
+            record_launch_diagnostic("helper replied failed; inspect helper last-error log");
+            Err(GuestProtocolErrorV1::Io)
+        }
+        _ => {
+            record_launch_diagnostic("helper returned an unexpected launch reply");
+            Err(GuestProtocolErrorV1::Malformed)
+        }
+    }
+}
+
+fn record_launch_diagnostic(message: &str) {
+    const PATH: &str = "/home/koolade/Downloads/koolade-guest-app-helper-client-error.log";
+    let bounded = message.chars().take(1024).collect::<String>();
+    eprintln!("guest app helper client: {bounded}");
+    if let Err(error) = std::fs::write(PATH, bounded.as_bytes()) {
+        eprintln!("could not persist guest app helper client diagnostic: {error}");
     }
 }
 
