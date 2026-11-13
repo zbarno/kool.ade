@@ -44,6 +44,7 @@ mod tests {
         for kind in [
             crate::execution::errors::ExecutionErrorKind::EnvironmentUnavailable,
             crate::execution::errors::ExecutionErrorKind::WorkerDisconnected,
+            crate::execution::errors::ExecutionErrorKind::ExecutionFailed,
         ] {
             let failure = crate::execution::errors::ExecutionError::new(
                 kind,
@@ -56,7 +57,7 @@ mod tests {
                 classified
                     .downcast_ref::<VerificationOutcomeUnknown>()
                     .is_some(),
-                "health disconnect reported as {kind:?} must stay uncertain"
+                "exact local Docker health failure reported as {kind:?} must stay uncertain"
             );
             assert!(classified.to_string().contains("outcome is unknown"));
         }
