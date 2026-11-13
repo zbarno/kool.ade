@@ -99,7 +99,14 @@ pub(super) fn launch_as_desktop_user(app_id: &str) -> ReplyV1 {
             ReplyV1::Completed
         }
         Err(error) => {
-            eprintln!("approved app launch failed for {app_id}: {error}");
+            let diagnostic = format!("approved app launch failed for {app_id}: {error}");
+            eprintln!("{diagnostic}");
+            if let Err(log_error) = std::fs::write(
+                "/var/log/koolade-computer-use-app-helper-last-error",
+                format!("{diagnostic}\n"),
+            ) {
+                eprintln!("could not persist approved app launch failure: {log_error}");
+            }
             ReplyV1::Failed
         }
     }
