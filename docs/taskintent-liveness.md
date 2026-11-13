@@ -84,9 +84,11 @@ not be inferred from a green unit test of an individual reducer:
 3. A plan-confirmation reconciliation error currently returns no effects. The
    safe no-mutation behavior is correct, but this seam alone does not guarantee
    a durable user-visible blocker for every storage or validation failure.
-4. Existing restart recovery is stage-specific. It does not yet prove the
-   complete issue #581 restart matrix across pending answers, active workers,
-   cancelled tasks, stale snapshots, and changed Git baselines.
+4. The expanded app-restart acceptance now combines a pending saved answer, a
+   worker process holding the exact task lease, a cancelled sibling, partial
+   clone progress, approved source SHAs, a stale plan snapshot hash, and changed
+   feature/Git baselines. Broader cross-stage crash combinations and real
+   provider execution across restart remain unproven.
 
 These are implementation gaps, not invitations to add another scheduler,
 state store, or event ledger. Follow-up work should extend the existing
