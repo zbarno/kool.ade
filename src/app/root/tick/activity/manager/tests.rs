@@ -92,6 +92,8 @@ fn repeated_manager_failure_does_not_duplicate_activity() {
     assert_eq!(project.activity.last_manager_error.as_deref(), Some(error));
 }
 
+#[path = "tests/duplicate_output.rs"]
+mod duplicate_output;
 #[path = "tests/liveness_independence.rs"]
 mod liveness_independence;
 #[path = "tests/reordered_outcomes.rs"]

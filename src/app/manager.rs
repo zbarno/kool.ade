@@ -160,6 +160,55 @@ impl Manager {
     }
 }
 
+#[cfg(test)]
+pub(super) fn duplicate_disposition_output_for_test(
+    project: &crate::app::session::Project,
+) -> ManagerOutput {
+    use crate::harness::prompt_catalog::{ManagerActionKind, ManagerActionV1};
+    use sha2::Digest;
+
+    let reviews = catalog::reviews::current_review_evidence(project);
+    let review = reviews
+        .iter()
+        .find(|review| review.target.feature_id == "CHG-004")
+        .expect("the fixture has persisted independent plan-review evidence");
+    let finding_id = review
+        .target
+        .finding_ids
+        .first()
+        .expect("review evidence contains a finding")
+        .clone();
+    let evidence_hashes = reviews
+        .iter()
+        .flat_map(|review| std::iter::once(&review.item).chain(review.supporting_items.iter()))
+        .map(|item| {
+            (
+                item.id.clone(),
+                format!("{:x}", sha2::Sha256::digest(item.content.as_bytes())),
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    ManagerOutput {
+        summary: "The reviewed plan finding needs repair.".into(),
+        uncertainty_reported: false,
+        proposed_actions: vec![ManagerActionV1 {
+            kind: ManagerActionKind::RepairPlan,
+            target: format!("CHG-004#{finding_id}"),
+            reason: "Repair the currently reviewed plan finding.".into(),
+            evidence: vec![review.id.clone()],
+            expected_revision: review.target.revision.clone(),
+            contradiction: None,
+        }],
+        opportunities: Vec::new(),
+        evidence_hashes,
+        evidence_confidentialities: Default::default(),
+        planning_revision: project.state.baseline_planning_revision.clone(),
+        code_review_targets: Default::default(),
+        verified_repository_evidence: Vec::new(),
+        baseline_review_id: None,
+    }
+}
+
 /// Query a deterministic, bounded page of the complete local task index.
 /// Other Manager context builders can retrieve selected board rows without
 /// copying the whole board into a provider prompt. focus_ids may contain task
