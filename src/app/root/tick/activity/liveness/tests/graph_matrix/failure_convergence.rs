@@ -98,9 +98,9 @@ fn mixed_graph_recovers_canonically_after_lifecycle_and_store_failures() {
         .filter(|work| work.key.starts_with("task:manager-liveness:"))
         .map(|work| (work.parent_uid.clone().unwrap(), work.uid.clone()))
         .collect::<std::collections::BTreeMap<_, _>>();
-    assert_eq!(
-        final_recoveries, first,
-        "active root {active_uid} and cancelled root {cancelled_uid} must stay excluded"
+    assert!(
+        final_recoveries == first,
+        "stable recovery parent and UID mapping must survive resync and repeated sweeps"
     );
     assert_eq!(final_recoveries.len(), 3);
     std::fs::remove_file(lifecycle_collection).unwrap();
