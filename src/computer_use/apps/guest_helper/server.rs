@@ -41,7 +41,13 @@ pub(super) fn run() -> Result<(), &'static str> {
         return Err("helper socket group cannot be assigned");
     }
     for connection in listener.incoming() {
-        let Ok(mut stream) = connection else { continue };
+        let mut stream = match connection {
+            Ok(stream) => stream,
+            Err(error) => {
+                eprintln!("guest app helper: accept failed: {error}");
+                continue;
+            }
+        };
         if !authorized_peer(&stream) {
             continue;
         }
@@ -53,7 +59,14 @@ pub(super) fn run() -> Result<(), &'static str> {
             continue;
         }
         let mut pending_stage = None;
-        while let Ok(request) = read_message::<_, RequestV1>(&mut stream) {
+        loop {
+            let request = match read_message::<_, RequestV1>(&mut stream) {
+                Ok(request) => request,
+                Err(error) => {
+                    eprintln!("guest app helper: request read failed: {error:?}");
+                    break;
+                }
+            };
             let (reply, keep_open) = match request {
                 RequestV1::Launch { app_id } => {
                     (super::execute::launch_as_desktop_user(&app_id), false)
@@ -99,7 +112,11 @@ pub(super) fn run() -> Result<(), &'static str> {
                     (super::execute::launch_staged_task(&action), false)
                 }
             };
-            if write_message(&mut stream, &reply).is_err() || !keep_open {
+            if let Err(error) = write_message(&mut stream, &reply) {
+                eprintln!("guest app helper: reply write failed: {error:?}");
+                break;
+            }
+            if !keep_open {
                 break;
             }
         }
@@ -110,7 +127,7 @@ pub(super) fn run() -> Result<(), &'static str> {
 fn authorized_peer(stream: &UnixStream) -> bool {
     let mut credentials: libc::ucred = unsafe { std::mem::zeroed() };
     let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-    if unsafe {
+    let credential_result = unsafe {
         libc::getsockopt(
             stream.as_raw_fd(),
             libc::SOL_SOCKET,
@@ -118,18 +135,28 @@ fn authorized_peer(stream: &UnixStream) -> bool {
             (&mut credentials as *mut libc::ucred).cast(),
             &mut length,
         )
-    } != 0
-        || length as usize != std::mem::size_of::<libc::ucred>()
-    {
+    };
+    if credential_result != 0 {
+        eprintln!("guest app helper: SO_PEERCRED failed");
+        return false;
+    }
+    if length as usize != std::mem::size_of::<libc::ucred>() {
+        eprintln!("guest app helper: SO_PEERCRED returned an unexpected size");
         return false;
     }
     let agent = unsafe { libc::getpwnam(c"koolade-agent".as_ptr()) };
     let desktop = unsafe { libc::getpwnam(c"koolade".as_ptr()) };
-    !agent.is_null()
-        && !desktop.is_null()
-        && peer_uid_is_agent(credentials.uid, unsafe { (*agent).pw_uid }, unsafe {
-            (*desktop).pw_uid
-        })
+    if agent.is_null() || desktop.is_null() {
+        eprintln!("guest app helper: peer account lookup failed");
+        return false;
+    }
+    let agent_uid = unsafe { (*agent).pw_uid };
+    let desktop_uid = unsafe { (*desktop).pw_uid };
+    let authorized = peer_uid_is_agent(credentials.uid, agent_uid, desktop_uid);
+    if !authorized {
+        eprintln!("guest app helper: rejected Unix peer credentials");
+    }
+    authorized
 }
 
 fn peer_uid_is_agent(
