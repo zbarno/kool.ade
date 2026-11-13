@@ -62,9 +62,10 @@ feature/task phase transitions and gate receipts are in the
 This branch adds durable Manager run outcomes/checkpoints, exact selected-route
 resume after capability refresh, and a periodic TaskIntent liveness sweep. The
 sweep creates a cycle-scoped recovery task when it finds no active turn, held
-task lease, task-scoped open decision, or recognized lifecycle owner. Its
-failure and restart matrix still needs executable validation; it is not yet
-evidence that every graph state converges.
+task lease, task-scoped open decision, or recognized lifecycle owner. Focused
+and combined failure/restart tests cover several recovery paths, but the broader
+matrix remains incomplete and does not establish that every graph state
+converges.
 
 The following are not established by the component mechanisms above and must
 not be inferred from a green unit test of an individual reducer:
