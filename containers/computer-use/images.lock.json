@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "status": "promoted",
-  "manifest_sha256": "sha256:509a87716d242ed546c2bd9ac9230b3467c0e8e98a131c4009dbfaca8ddb2e6f",
-  "catalog_generation": 15,
+  "manifest_sha256": "sha256:62ada7f16b926b070637692a4d5ddf0f60e5bf46c1c704cb6db3705038dc4599",
+  "catalog_generation": 16,
   "images": [
-    "sha256:d24749d276706e3852e917e1df74b0b21016ffc8e259929a0fe1fff6cee85ae2"
+    "sha256:badcb8c10a3fa96a36cb648d7e85a691573ff8941bea6ee6ce308edcb5982013"
   ]
 }
