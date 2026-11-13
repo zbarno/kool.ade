@@ -171,5 +171,21 @@ mod tests {
             )
             .is_retryable_local_docker_health_disconnect()
         );
+        assert!(
+            ExecutionError::new(
+                ExecutionErrorKind::WorkerDisconnected,
+                LOCAL_DOCKER_HEALTH_DISCONNECTED,
+                false,
+            )
+            .is_local_docker_health_disconnect()
+        );
+        assert!(
+            !ExecutionError::new(
+                ExecutionErrorKind::WorkerDisconnected,
+                "Docker Engine operation failed or disconnected",
+                true,
+            )
+            .is_local_docker_health_disconnect()
+        );
     }
 }

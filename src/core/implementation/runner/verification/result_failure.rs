@@ -1,7 +1,9 @@
 pub(super) fn classify_execution_error(
     error: crate::execution::errors::ExecutionError,
 ) -> anyhow::Error {
-    if error.is_local_docker_health_disconnect() {
+    if error.is_local_docker_health_disconnect()
+        || error.kind == crate::execution::errors::ExecutionErrorKind::WorkerDisconnected
+    {
         anyhow::Error::new(super::super::VerificationOutcomeUnknown)
     } else {
         anyhow::anyhow!("Docker verification failed: {}", error.message)
@@ -12,7 +14,10 @@ pub(super) fn classify_result_failure(
     failure: Option<&crate::execution::errors::ExecutionError>,
 ) -> Option<anyhow::Error> {
     failure
-        .filter(|error| error.is_local_docker_health_disconnect())
+        .filter(|error| {
+            error.is_local_docker_health_disconnect()
+                || error.kind == crate::execution::errors::ExecutionErrorKind::WorkerDisconnected
+        })
         .cloned()
         .map(classify_execution_error)
 }
@@ -61,6 +66,40 @@ mod tests {
             );
             assert!(classified.to_string().contains("outcome is unknown"));
         }
+    }
+
+    #[test]
+    fn completed_worker_disconnect_health_failure_remains_typed_as_unknown() {
+        let failure = crate::execution::errors::ExecutionError::new(
+            crate::execution::errors::ExecutionErrorKind::WorkerDisconnected,
+            crate::execution::errors::LOCAL_DOCKER_HEALTH_DISCONNECTED,
+            true,
+        );
+        let classified = classify_result_failure(Some(&failure)).unwrap();
+
+        assert!(
+            classified
+                .downcast_ref::<VerificationOutcomeUnknown>()
+                .is_some()
+        );
+        assert!(classified.to_string().contains("outcome is unknown"));
+    }
+
+    #[test]
+    fn any_completed_worker_disconnect_is_typed_as_unknown() {
+        let failure = crate::execution::errors::ExecutionError::new(
+            crate::execution::errors::ExecutionErrorKind::WorkerDisconnected,
+            "Docker Engine operation failed or disconnected",
+            true,
+        );
+        let classified = classify_result_failure(Some(&failure)).unwrap();
+
+        assert!(
+            classified
+                .downcast_ref::<VerificationOutcomeUnknown>()
+                .is_some()
+        );
+        assert!(classified.to_string().contains("outcome is unknown"));
     }
 
     #[test]

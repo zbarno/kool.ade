@@ -316,6 +316,9 @@ RuntimeDirectory=koolade-app-helper
 RuntimeDirectoryMode=0750
 ExecStartPre=/usr/bin/chgrp koolade-agent /run/koolade-app-helper
 NoNewPrivileges=yes
+# The helper needs these capabilities for socket ownership and to drop
+# approved application children to koolade.
+AmbientCapabilities=CAP_CHOWN CAP_SETGID CAP_SETUID
 ProtectSystem=no
 ProtectHome=no
 PrivateTmp=no
