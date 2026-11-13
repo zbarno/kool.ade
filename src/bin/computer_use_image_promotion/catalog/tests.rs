@@ -139,6 +139,53 @@ fn signing_binds_candidate_sidecars_companion_attestations_and_lock() {
 }
 
 #[test]
+fn promotion_compacts_revoked_history_before_the_catalog_limit() {
+    let signer = SigningKey::from_bytes(&[71; 32]);
+    let trust = synthetic_trust(&signer);
+    let candidate = dummy_candidate();
+    let candidate_digest = candidate.image.image_digest.clone();
+    let mut images = Vec::new();
+    let mut previous_approved = dummy_candidate().image;
+    previous_approved.image_digest = format!("sha256:{:064x}", 1_u8);
+    let previous_digest = previous_approved.image_digest.clone();
+    images.push(previous_approved);
+    for index in 2_u8..=16 {
+        let mut revoked = dummy_candidate().image;
+        revoked.image_digest = format!("sha256:{:064x}", index);
+        revoked.status = GuestImageStatusV1::Revoked;
+        images.push(revoked);
+    }
+
+    let (manifest, lock) = build_signed_bundle(
+        candidate,
+        PreviousCatalog {
+            generation: 16,
+            images,
+        },
+        17,
+        1_000_000,
+        &signer,
+        &trust,
+    )
+    .unwrap();
+
+    assert_eq!(manifest.images.len(), 2);
+    assert_eq!(
+        manifest
+            .images
+            .iter()
+            .find(|image| image.image_digest == previous_digest)
+            .unwrap()
+            .status,
+        GuestImageStatusV1::Revoked
+    );
+    assert!(manifest.images.iter().any(|image| {
+        image.image_digest == candidate_digest && image.status == GuestImageStatusV1::Approved
+    }));
+    assert_eq!(lock.images, [candidate_digest]);
+}
+
+#[test]
 fn signing_rejects_a_key_that_is_not_in_the_supplied_trust_store() {
     let signer = SigningKey::from_bytes(&[71; 32]);
     let wrong_signer = SigningKey::from_bytes(&[72; 32]);

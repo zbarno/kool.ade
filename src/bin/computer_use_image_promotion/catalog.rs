@@ -132,16 +132,26 @@ fn build_signed_bundle(
         generation > previous.generation,
         "new catalog generation must exceed the current lock generation"
     );
-    let mut images = previous.images;
-    for image in &mut images {
-        image.status = GuestImageStatusV1::Revoked;
-    }
     ensure!(
-        !images
+        !previous
+            .images
             .iter()
             .any(|image| image.image_digest == candidate.image.image_digest),
         "candidate image digest already exists in the catalog"
     );
+    // Keep the previously approved images so existing sessions can still be
+    // recognized as revoked, but discard older revocation records. Only
+    // approved images are eligible for a new session, so carrying historical
+    // revoked digests forward serves no authorization purpose and eventually
+    // exhausts the signed catalog's bounded image capacity.
+    let mut images = previous
+        .images
+        .into_iter()
+        .filter(|image| image.status == GuestImageStatusV1::Approved)
+        .collect::<Vec<_>>();
+    for image in &mut images {
+        image.status = GuestImageStatusV1::Revoked;
+    }
     images.push(candidate.image.clone());
     images.sort_by(|left, right| left.image_digest.cmp(&right.image_digest));
     ensure!(images.len() <= 16, "catalog image limit exceeded");
