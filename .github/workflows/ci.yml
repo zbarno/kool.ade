@@ -191,7 +191,7 @@ jobs:
           set +e
           /usr/bin/time -p -o "$RUNNER_TEMP/nextest-time.txt" \
             cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast --test-threads 16 \
-              -E 'not (test(/^core::implementation::tests::/) and not test(/docker_lifecycle/)) and not test(/^core::implementation::tests::docker_lifecycle::cancelled_task_clone_resumes_through_docker_verification_and_waits_for_pr_authorization$/) and not test(/^app::root::board_tests::queue_execution::concurrent_workers::auto_queue_runs_independent_tasks_past_review_and_during_planning$/) and not test(/^harness::resource_bridge::tests::end_to_end::remote::/) and not test(/^execution::docker::backend::tests::docker_engine::system_image::approved_polyglot_composite_is_cached_and_isolated_across_tasks$/)'
+              -E 'not (test(/^core::implementation::tests::/) and not test(/docker_lifecycle/)) and not test(/^core::implementation::tests::docker_lifecycle::cancelled_task_clone_resumes_through_docker_verification_and_waits_for_pr_authorization$/) and not test(/^app::root::board_tests::queue_execution::concurrent_workers::auto_queue_runs_independent_tasks_past_review_and_during_planning$/) and not test(/^harness::resource_bridge::tests::end_to_end::remote::/) and not test(/^execution::docker::backend::tests::docker_engine::system_image::approved_polyglot_composite_is_cached_and_isolated_across_tasks$/) and not test(/^execution::docker::backend::tests::docker_engine::stack_recipes::approved_stack_recipes_execute_across_runtime_profiles$/) and not test(/^execution::docker::backend::tests::docker_engine::composite_persistence::planted_derived_tag_squats_recover_non_destructively_and_preserve_foreign_data$/)'
           parallel_status=$?
           set -e
 
@@ -205,12 +205,31 @@ jobs:
           set -e
           mkdir -p target/nextest/inventory
           cp target/nextest/default/nextest.xml target/nextest/inventory/parallel-suite.xml
-          export KOOLADE_TEST_SUITE_LABEL="Isolated remote worker and composite Docker tests"
-          printf '### Isolated remote-worker and composite-image phase\n' >> "$GITHUB_STEP_SUMMARY"
+          export KOOLADE_TEST_SUITE_LABEL="Isolated Docker Engine recipe and persistence tests"
+          printf '### Isolated Docker Engine recipe and persistence phase\n' >> "$GITHUB_STEP_SUMMARY"
+          set +e
+          /usr/bin/time -p -o "$RUNNER_TEMP/docker-engine-nextest-time.txt" \
+            cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast --test-threads 1 \
+              -E 'test(/^execution::docker::backend::tests::docker_engine::system_image::approved_polyglot_composite_is_cached_and_isolated_across_tasks$/) or test(/^execution::docker::backend::tests::docker_engine::stack_recipes::approved_stack_recipes_execute_across_runtime_profiles$/) or test(/^execution::docker::backend::tests::docker_engine::composite_persistence::planted_derived_tag_squats_recover_non_destructively_and_preserve_foreign_data$/)'
+          docker_engine_status=$?
+          set -e
+
+          cat "$RUNNER_TEMP/docker-engine-nextest-time.txt"
+          set +e
+          python3 scripts/summarize-nextest-junit.py \
+            "$RUNNER_TEMP/docker-engine-nextest-time.txt" \
+            target/nextest/default/nextest.xml \
+            >> "$GITHUB_STEP_SUMMARY"
+          docker_engine_report_status=$?
+          set -e
+          cp target/nextest/default/nextest.xml target/nextest/inventory/docker-engine-isolated.xml
+
+          export KOOLADE_TEST_SUITE_LABEL="Isolated remote worker integration tests"
+          printf '### Isolated remote-worker phase\n' >> "$GITHUB_STEP_SUMMARY"
           set +e
           /usr/bin/time -p -o "$RUNNER_TEMP/isolated-nextest-time.txt" \
             cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast --test-threads 16 \
-              -E 'test(/^harness::resource_bridge::tests::end_to_end::remote::/) or test(/^execution::docker::backend::tests::docker_engine::system_image::approved_polyglot_composite_is_cached_and_isolated_across_tasks$/)'
+              -E 'test(/^harness::resource_bridge::tests::end_to_end::remote::/)'
           isolated_status=$?
           set -e
 
@@ -226,6 +245,8 @@ jobs:
           cp target/nextest/default/nextest.xml target/nextest/inventory/remote-worker-isolated.xml
           if [ "$parallel_status" -ne 0 ]; then exit "$parallel_status"; fi
           if [ "$parallel_report_status" -ne 0 ]; then exit "$parallel_report_status"; fi
+          if [ "$docker_engine_status" -ne 0 ]; then exit "$docker_engine_status"; fi
+          if [ "$docker_engine_report_status" -ne 0 ]; then exit "$docker_engine_report_status"; fi
           if [ "$isolated_status" -ne 0 ]; then exit "$isolated_status"; fi
           exit "$isolated_report_status"
 
