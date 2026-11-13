@@ -27,6 +27,10 @@ pub(crate) use harness_setup::supported_provider_id;
 pub use harness_setup::{
     DlgHarnessSetup, HarnessSettingsSection, paint_harness_setup_card, paint_harness_setup_page,
 };
+#[cfg(test)]
+pub(crate) use harness_setup::{
+    poll_cli_auto_refresh_for_test, with_cli_background_sweeps_permitted_for_test,
+};
 pub use import::DlgImport;
 pub use mcp::{DlgMcp, MCP_EXAMPLE_HINT, paint_mcp_card};
 pub use persona_card::{

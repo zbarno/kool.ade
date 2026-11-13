@@ -216,6 +216,11 @@ pub(crate) fn poll_auto_refresh() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[path = "automatic_refresh.rs"]
+    mod automatic_refresh;
+
     #[test]
     fn startup_sweep_is_one_shot_and_later_sweeps_need_a_request() {
         // The app-start sweep always starts ...
