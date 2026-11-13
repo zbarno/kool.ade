@@ -152,9 +152,14 @@ fn authorized_peer(stream: &UnixStream) -> bool {
     }
     let agent_uid = unsafe { (*agent).pw_uid };
     let desktop_uid = unsafe { (*desktop).pw_uid };
+    let peer_matches_agent = credentials.uid == agent_uid;
+    let peer_matches_desktop = credentials.uid == desktop_uid;
+    let accounts_are_distinct = agent_uid != desktop_uid;
     let authorized = peer_uid_is_agent(credentials.uid, agent_uid, desktop_uid);
     if !authorized {
-        eprintln!("guest app helper: rejected Unix peer credentials");
+        eprintln!(
+            "guest app helper: rejected Unix peer credentials (agent_match={peer_matches_agent}, desktop_match={peer_matches_desktop}, accounts_distinct={accounts_are_distinct})"
+        );
     }
     authorized
 }
