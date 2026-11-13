@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "computer-use-images-v1-13-cb49a387ec16",
-  "catalogGeneration": 13,
-  "issuedAtUnixMs": 1794565771912,
-  "expiresAtUnixMs": 1802341771912,
+  "catalogVersion": "computer-use-images-v1-16-badcb8c10a3f",
+  "catalogGeneration": 16,
+  "issuedAtUnixMs": 1794597538847,
+  "expiresAtUnixMs": 1802373538847,
   "signerKeyId": "76fe57c9-0102-424b-9bb2-90b7ca745006",
   "images": [
     {
@@ -34,6 +34,21 @@
       "build_attestation_sha256": "sha256:58627ca7a10ae69a5108dcd1ce50d55547474fc044b5555393c55055a31342cb",
       "companion_protocol_version": 1,
       "companion_sha256": "sha256:5201deaf1359e4ce738700831c263d475eea9ea934664f8390cd2ab464100278",
+      "status": "revoked"
+    },
+    {
+      "architecture": "x86_64",
+      "image_digest": "sha256:2f58c6e8fcb2dcfbfeeda42df69188ba11b8c2fa94ec69330402ff67a2b3b7a2",
+      "image_size_bytes": 4294967296,
+      "artifact_size_bytes": 682426368,
+      "artifact_name": "koolade-computer-use-guest-x86_64.qcow2",
+      "guest_release": "debian-bookworm-dfe851c9afdd",
+      "source_revision": "dfe851c9afdd4f4b78dc9fbed7fc786c6f78979c",
+      "build_recipe_sha256": "sha256:0c6b960b2c34ec2813d27f21519be7d64df491cae35809c5c699509eac337a80",
+      "sbom_sha256": "sha256:c24b767f1f4e7635a31372c2f341a44870843770cea2b6d3bdabb3e5a3681544",
+      "build_attestation_sha256": "sha256:17fe528d83261a91a167f1d7811589d8344e70c81badde1963f1e90630527636",
+      "companion_protocol_version": 1,
+      "companion_sha256": "sha256:88c65a84f143ca427798e00f485ae2aff41a1711b2d0c162db7c6533f2768f75",
       "status": "revoked"
     },
     {
@@ -158,6 +173,21 @@
     },
     {
       "architecture": "x86_64",
+      "image_digest": "sha256:badcb8c10a3fa96a36cb648d7e85a691573ff8941bea6ee6ce308edcb5982013",
+      "image_size_bytes": 4294967296,
+      "artifact_size_bytes": 682426368,
+      "artifact_name": "koolade-computer-use-guest-x86_64.qcow2",
+      "guest_release": "debian-bookworm-5d51d49bc47b",
+      "source_revision": "5d51d49bc47bdbf37d46f4851b832d74835aa031",
+      "build_recipe_sha256": "sha256:2f2a6c430a6234cf358f9af444a332a12024c41a2fcbc2432899ffc0be641472",
+      "sbom_sha256": "sha256:c24b767f1f4e7635a31372c2f341a44870843770cea2b6d3bdabb3e5a3681544",
+      "build_attestation_sha256": "sha256:6965b7fc8cb54c3d6286e746cb41231f20799c4f16a7445946aafe7f476870a8",
+      "companion_protocol_version": 1,
+      "companion_sha256": "sha256:c483fdb4b99e3fb6c40230a8094f30ffe7aa56de92edbfafa7c40fc4dffe92dc",
+      "status": "approved"
+    },
+    {
+      "architecture": "x86_64",
       "image_digest": "sha256:c8a00809e7352e6ad4661283a00f197b29963e9f70b2abdbcaa4ffa458365138",
       "image_size_bytes": 4294967296,
       "artifact_size_bytes": 682491904,
@@ -184,7 +214,22 @@
       "build_attestation_sha256": "sha256:6f0d2ddf5c948ffb3c6feaab9058f79b304a24b0c35e7ec3837a322875e15970",
       "companion_protocol_version": 1,
       "companion_sha256": "sha256:0592af1a53ab8dcb86730d623596c23613b1a7ef28f597b58dd5c5eba91cd430",
-      "status": "approved"
+      "status": "revoked"
+    },
+    {
+      "architecture": "x86_64",
+      "image_digest": "sha256:d24749d276706e3852e917e1df74b0b21016ffc8e259929a0fe1fff6cee85ae2",
+      "image_size_bytes": 4294967296,
+      "artifact_size_bytes": 682557440,
+      "artifact_name": "koolade-computer-use-guest-x86_64.qcow2",
+      "guest_release": "debian-bookworm-bf308bf4520c",
+      "source_revision": "bf308bf4520c64f989180ac02794c220dd422542",
+      "build_recipe_sha256": "sha256:2a22dd4a7e90cc2c35da7c01be76a7247aaae14e185050dd606e6246e71bc54a",
+      "sbom_sha256": "sha256:c24b767f1f4e7635a31372c2f341a44870843770cea2b6d3bdabb3e5a3681544",
+      "build_attestation_sha256": "sha256:5a9d7c53190e46595a2d0498cf44cdb7e4cfc91b9ab114f8cef29e5cb36e98fb",
+      "companion_protocol_version": 1,
+      "companion_sha256": "sha256:0f0d31fef17b53eaad91d2b02702120f0420001a3981f9e03b04bc11c2db9a4b",
+      "status": "revoked"
     },
     {
       "architecture": "x86_64",
@@ -202,5 +247,5 @@
       "status": "revoked"
     }
   ],
-  "signatureHex": "dbce1aefdf3c2090d81f51500963d45d828181c68f04b1294bce60eb092c17af02faed1e5603842600236574d724eead6e746abba55229cfbb188204d3c5900a"
+  "signatureHex": "a8449e341640209392b7a9cbd3eca2e7eac1d174287b984e7a5acc5b4c728c90d57f08e0ce05578d834127de70b87d627b875ee5429e624c7ef6c1d488a95b0b"
 }
