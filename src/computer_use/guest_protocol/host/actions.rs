@@ -1,6 +1,26 @@
 use super::*;
 use crate::computer_use::guest_protocol::{GuestActionReplyV1, frame::read_frame};
 
+pub(super) fn completed_without_observation(
+    operation: crate::computer_use::ComputerOperationV1,
+    action_sequence: u64,
+) -> Option<GuestActionOutcomeV1> {
+    if !matches!(
+        operation,
+        crate::computer_use::ComputerOperationV1::ManageApp
+            | crate::computer_use::ComputerOperationV1::LaunchApprovedStagedTaskApp
+    ) {
+        return None;
+    }
+    Some(GuestActionOutcomeV1 {
+        reply: GuestActionReplyV1 {
+            action_sequence,
+            result: GuestOperationResultV1::Completed,
+        },
+        observation: None,
+    })
+}
+
 impl AuthenticatedGuestChannelV1 {
     pub(super) fn read_action_result(
         &mut self,
@@ -99,6 +119,11 @@ impl AuthenticatedGuestChannelV1 {
                 | crate::computer_use::ComputerActionPayloadV1::QueryState
         );
         if !requires_observation {
+            if let Some(outcome) =
+                completed_without_observation(action.operation, action.action_sequence)
+            {
+                return Ok(outcome);
+            }
             return Err(GuestProtocolErrorV1::Malformed);
         }
         let incoming: AuthenticatedGuestEnvelopeV1 = read_frame(
