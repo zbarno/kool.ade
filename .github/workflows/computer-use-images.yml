@@ -211,9 +211,10 @@ jobs:
       - name: Verify real qcow2 copy-on-write isolation
         run: bash containers/computer-use/test-overlay-isolation.sh
       - name: Verify guest architecture SBOM metadata
-        run: python3 -m unittest \
-          scripts.tests.test_computer_use_guest_image_sbom \
-          scripts.tests.test_computer_use_fat32_normalizer -v
+        run: |
+          python3 -m unittest \
+            scripts.tests.test_computer_use_guest_image_sbom \
+            scripts.tests.test_computer_use_fat32_normalizer -v
       - name: Build twice and verify reproducibility
         shell: bash
         run: |
@@ -335,9 +336,10 @@ jobs:
       - name: Verify real qcow2 copy-on-write isolation
         run: bash containers/computer-use/test-overlay-isolation.sh
       - name: Verify guest architecture SBOM metadata
-        run: python3 -m unittest \
-          scripts.tests.test_computer_use_guest_image_sbom \
-          scripts.tests.test_computer_use_fat32_normalizer -v
+        run: |
+          python3 -m unittest \
+            scripts.tests.test_computer_use_guest_image_sbom \
+            scripts.tests.test_computer_use_fat32_normalizer -v
       - name: Build twice and verify AArch64 reproducibility
         shell: bash
         run: |
