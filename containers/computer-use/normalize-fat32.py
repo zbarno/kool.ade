@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Set FAT32 directory-entry timestamps to stable DOS epoch values."""
 
+import fcntl
 import os
+import stat
+import struct
 import sys
 from pathlib import Path
 
@@ -14,7 +17,13 @@ FAT32_BAD_CLUSTER = 0x0FFFFFF7
 
 def normalize(image: Path) -> None:
     with image.open("r+b", buffering=0) as disk:
-        size = os.fstat(disk.fileno()).st_size
+        metadata = os.fstat(disk.fileno())
+        if stat.S_ISBLK(metadata.st_mode):
+            # Linux reports st_size as zero for loop partition devices. Query
+            # the kernel for the partition capacity before validating geometry.
+            size = struct.unpack("Q", fcntl.ioctl(disk.fileno(), 0x80081272, b"\0" * 8))[0]
+        else:
+            size = metadata.st_size
         boot = disk.read(512)
         if len(boot) != 512 or boot[510:512] != b"\x55\xaa" or boot[82:90] != b"FAT32   ":
             raise ValueError("invalid FAT boot sector")
