@@ -1,6 +1,6 @@
 //! Win32 security descriptors for app-owned VM storage.
 
-use std::{io, ptr::null_mut};
+use std::{io, mem::size_of, ptr::null_mut};
 
 use windows_sys::Win32::{
     Foundation::{HANDLE, LocalFree},
@@ -9,7 +9,8 @@ use windows_sys::Win32::{
         ConvertStringSidToSidW, GetSecurityInfo, SDDL_REVISION_1, SE_FILE_OBJECT, SetSecurityInfo,
     },
     Security::{
-        ACCESS_ALLOWED_ACE, CONTAINER_INHERIT_ACE, DACL_SECURITY_INFORMATION, GetAce,
+        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL_SIZE_INFORMATION, AclSizeInformation,
+        CONTAINER_INHERIT_ACE, DACL_SECURITY_INFORMATION, GetAce, GetAclInformation,
         GetSecurityDescriptorControl, GetSecurityDescriptorDacl, INHERITED_ACE, IsValidAcl,
         OBJECT_INHERIT_ACE, PROTECTED_DACL_SECURITY_INFORMATION, SE_DACL_PROTECTED,
         SECURITY_ATTRIBUTES,
@@ -167,7 +168,23 @@ unsafe fn acl_has_only_user_and_system_full_access(
     current_sid: &[u8],
 ) -> bool {
     // SAFETY: caller supplies the DACL pointer extracted from a live descriptor.
-    if unsafe { IsValidAcl(dacl) } == 0 || unsafe { (*dacl).AceCount } != 2 {
+    if unsafe { IsValidAcl(dacl) } == 0 {
+        return false;
+    }
+    let mut acl_info = ACL_SIZE_INFORMATION::default();
+    // SAFETY: dacl is the non-null ACL returned by the live descriptor; the
+    // output is correctly sized for AclSizeInformation.
+    if unsafe {
+        GetAclInformation(
+            dacl,
+            (&mut acl_info as *mut ACL_SIZE_INFORMATION).cast(),
+            size_of::<ACL_SIZE_INFORMATION>() as u32,
+            AclSizeInformation,
+        )
+    } == 0
+        || acl_info.AceCount != 2
+        || acl_info.AclBytesInUse < size_of::<windows_sys::Win32::Security::ACL>() as u32
+    {
         return false;
     }
     let system_sid_text = "S-1-5-18".encode_utf16().chain(Some(0)).collect::<Vec<_>>();
@@ -179,14 +196,33 @@ unsafe fn acl_has_only_user_and_system_full_access(
     let system_sid = LocalSid(system_sid);
     let mut saw_user = false;
     let mut saw_system = false;
+    let acl_start = dacl as usize;
+    let Some(acl_end) = acl_start.checked_add(acl_info.AclBytesInUse as usize) else {
+        return false;
+    };
     for index in 0..2 {
         let mut ace = null_mut();
         // SAFETY: index is within the validated two-ACE ACL.
         if unsafe { GetAce(dacl, index, &mut ace) } == 0 || ace.is_null() {
             return false;
         }
-        // SAFETY: the ACE pointer is valid for this ACL; test its type before its body.
-        let header = unsafe { &*ace.cast::<windows_sys::Win32::Security::ACE_HEADER>() };
+        let ace_start = ace as usize;
+        let Some(header_end) = ace_start.checked_add(size_of::<ACE_HEADER>()) else {
+            return false;
+        };
+        if ace_start < acl_start || header_end > acl_end {
+            return false;
+        }
+        // SAFETY: GetAce succeeded and the complete header was checked to lie
+        // within AclBytesInUse before this potentially unaligned copy.
+        let header = unsafe { ace.cast::<ACE_HEADER>().read_unaligned() };
+        let ace_size = usize::from(header.AceSize);
+        let Some(ace_end) = ace_start.checked_add(ace_size) else {
+            return false;
+        };
+        if ace_size < size_of::<ACCESS_ALLOWED_ACE>() || ace_end > acl_end {
+            return false;
+        }
         let explicit_flags = (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE) as u8;
         let inherited_flags = explicit_flags | INHERITED_ACE as u8;
         if header.AceType != 0
@@ -194,12 +230,27 @@ unsafe fn acl_has_only_user_and_system_full_access(
         {
             return false;
         }
-        // SAFETY: an allowed ACE has this header, mask and SID layout.
-        let allowed = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
+        // SAFETY: the ACE was range-checked and its type is ACCESS_ALLOWED_ACE.
+        let allowed = unsafe { ace.cast::<ACCESS_ALLOWED_ACE>().read_unaligned() };
         if allowed.Mask != FILE_ALL_ACCESS {
             return false;
         }
-        let ace_sid = std::ptr::addr_of!(allowed.SidStart).cast_mut().cast();
+        let sid_offset = size_of::<ACE_HEADER>() + size_of::<u32>();
+        if sid_offset + 8 > ace_size {
+            return false;
+        }
+        // SAFETY: sid_offset and the minimum SID header are within the
+        // range-checked ACE above.
+        let ace_sid = unsafe { ace.cast::<u8>().add(sid_offset).cast::<core::ffi::c_void>() };
+        // SAFETY: the SID header lies within the already range-checked ACE.
+        let sid_header = unsafe { std::slice::from_raw_parts(ace_sid.cast::<u8>(), 8) };
+        let sub_authority_count = usize::from(sid_header[1]);
+        if sid_header[0] != 1
+            || sub_authority_count > 15
+            || sid_offset + 8 + sub_authority_count * size_of::<u32>() > ace_size
+        {
+            return false;
+        }
         // SAFETY: ACE SID storage is valid and both comparison SIDs remain live.
         if unsafe {
             windows_sys::Win32::Security::EqualSid(ace_sid, current_sid.as_ptr().cast_mut().cast())
