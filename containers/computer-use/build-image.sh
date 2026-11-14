@@ -331,7 +331,9 @@ ProtectKernelLogs=yes
 # the locked desktop account with setgroups, setgid, and setuid.
 LockPersonality=yes
 MemoryMax=128M
-TasksMax=16
+# Chromium uses multiple renderer, GPU, and utility processes. Keep the helper
+# cgroup bounded while leaving enough task slots for an approved browser launch.
+TasksMax=64
 
 [Install]
 WantedBy=multi-user.target
