@@ -50,13 +50,20 @@ unchanged.
 ## Evidence boundary
 
 The host preflight records OS/architecture, tool versions, KVM device
-accessibility, and delegated controller availability. The successful local
-guest test covers the signed-image-to-authenticated-launch, screenshot,
-display, and VM-release path. It does **not** exercise mouse/keyboard input,
-human takeover, file transfer, guest/host isolation, QA repair, or crash
-recovery; those scenarios remain unverified. Merely connecting the test to the
-workflow is not evidence that it passed. The positive run is recorded; #392
-remains open while its other acceptance criteria are completed.
+accessibility, and delegated controller availability. In addition to the
+boot/launch/screenshot/display/release run above, the opt-in acceptance test
+passed on 2026-11-14 at source commit `dbdf4828bf4a63801189e483bc1b04e644b86c39`.
+It sent a guest mouse click, refreshed authenticated frame metadata between
+actions, used Ctrl+L and typed/navigated a local data URL, then exercised
+human-controlled guest input and agent handback while checking that the prior
+actor capabilities were revoked. The cached-image run took 46.51 seconds and
+reported 1280×800 guest and QEMU display frames. This did not exercise the live
+Task Details viewer UI or a manually operated external handoff.
+
+File transfer, guest/host isolation, QA repair, crash recovery, performance
+measurements, and accessibility remain unverified. The test's opt-in status
+means ordinary CI can skip it; only the locally observed KVM run is evidence
+here. #392 remains open while its other acceptance criteria are completed.
 
 The existing ordinary CI suite continues to cover deterministic component
 tests and the rootless Docker boundary. Its mocks and synthetic browser
