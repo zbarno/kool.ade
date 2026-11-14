@@ -188,7 +188,7 @@ pub struct ComputerActionV1 {
 }
 
 impl ComputerActionV1 {
-    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
+    #[cfg(any(target_os = "linux", test))]
     pub(crate) fn sign_for_guest_helper(
         &mut self,
         signer_key_id: &str,
