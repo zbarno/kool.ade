@@ -26,6 +26,12 @@ use crate::computer_use::ComputerResourceLimitsV1;
 
 #[path = "r1_real_kvm/cgroup.rs"]
 mod cgroup;
+#[path = "r1_real_kvm/host_environment.rs"]
+mod host_environment;
+#[path = "r1_real_kvm/qmp.rs"]
+mod qmp;
+#[path = "r1_real_kvm/staged_artifact.rs"]
+mod staged_artifact;
 use cgroup::current_cgroup_root;
 
 const REAL_KVM_ENV: &str = "KOOLADE_COMPUTER_USE_R1_REAL_KVM";
@@ -50,7 +56,14 @@ impl ComputerImageDownloadApprovalV1 for TestImageApproval {
 /// Dependencies: a trusted, unprivileged Linux x86_64 KVM host, root-owned
 /// QEMU 8.x binaries, delegated cgroup v2, and a public 682 MB image download.
 /// Expected setup cost: image download once per fresh temporary test root and
-/// up to 120 seconds for guest boot, action and cleanup.
+/// up to 120 seconds for guest boot, action and cleanup. QMP inspects the live
+/// PCI graph to verify that the disabled-network guest has no network device;
+/// a command-builder unit test cannot detect QEMU-added runtime devices. A
+/// synthetic runner environment canary also verifies that QEMU inherits no host
+/// secrets from its parent process. A synthetic approved artifact also crosses
+/// the P15 bridge and authenticated guest channel and reaches the guest launch
+/// handoff. This proves transport and protocol acceptance only, not real QA
+/// build approval or application readiness.
 #[test]
 fn computer_use_r1_real_kvm_acceptance() {
     if std::env::var(REAL_KVM_ENV).as_deref() != Ok("1") {
@@ -99,13 +112,17 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
     session.image_manifest_digest = image.manifest_digest().to_owned();
     session.image_signer_key_id = image.manifest_signer_key_id().to_owned();
     session.network_profile = ComputerNetworkProfileV1::Disabled;
-    session.allowed_apps = BTreeSet::from(["chromium".to_owned()]);
+    session.allowed_apps = BTreeSet::from([
+        "chromium".to_owned(),
+        crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_APP_ID_V1.to_owned(),
+    ]);
     session.policy.allowed_apps = session.allowed_apps.clone();
     session.policy.authorized_operations = BTreeSet::from([
         ComputerOperationV1::ObserveScreen,
         ComputerOperationV1::MouseInput,
         ComputerOperationV1::KeyboardInput,
         ComputerOperationV1::LaunchAllowedApp,
+        ComputerOperationV1::LaunchApprovedStagedTaskApp,
     ]);
     session.policy.resource_budget = MINIMUM_DISPOSABLE_VM_BUDGET_V1;
     // QEMU and its desktop guest share the cgroup memory limit; leave room for
@@ -213,6 +230,13 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         backend
             .wait_ready(&session, &handle, Duration::from_secs(120), unix_time_ms()?)
             .map_err(|error| format!("guest readiness: {error:?}"))?;
+        let session_directory = root
+            .join("runtime/sessions")
+            .join(&session.identity.session_id);
+        qmp::assert_no_network_device(&session_directory.join("qemu-qmp.sock"))
+            .map_err(|error| format!("disabled-network QEMU device graph: {error}"))?;
+        host_environment::assert_host_secret_not_inherited(&session_directory)
+            .map_err(|error| format!("host secret isolation: {error}"))?;
 
         session.lifecycle = ComputerLifecycleV1::Delegated;
         session
@@ -452,10 +476,19 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
                 unix_time_ms()?,
             )
             .map_err(|error| format!("human takeover authorization: {error:?}"))?;
+        staged_artifact::stage_artifact_through_real_guest(
+            root,
+            &session,
+            controller_key_id,
+            &controller_key,
+            &human_authority,
+            &mut channel,
+            &journal,
+        )?;
         let human_action = action_as(
             &session,
             ComputerActionActorV1::Human,
-            11,
+            12,
             ComputerOperationV1::KeyboardInput,
             ComputerActionPayloadV1::KeyPress {
                 key: ComputerKeyV1::Named(KeyCodeV1::Escape),
