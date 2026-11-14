@@ -3,15 +3,47 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Duration;
 
-#[cfg(target_os = "linux")]
-use crate::computer_use::guest_protocol::AuthenticatedGuestChannelV1;
-use crate::computer_use::guest_protocol::GuestActionJournalV1;
-use crate::computer_use::{ComputerSessionV1, guest_image::GuestImageOverlayV1};
-
 use super::ComputerBackendErrorV1;
+
+mod backend;
+mod guest_channel;
+
+pub use backend::ComputerBackend;
+pub use guest_channel::{ComputerGuestChannelV1, ComputerGuestReadinessV1};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ComputerHostPlatformV1 {
+    LinuxX86_64,
+    LinuxAarch64,
+    MacOsIntel,
+    MacOsAppleSilicon,
+    WindowsX64,
+    WindowsArm64,
+    Unsupported,
+}
+
+impl ComputerHostPlatformV1 {
+    pub fn current() -> Self {
+        Self::from_os_arch(std::env::consts::OS, std::env::consts::ARCH)
+    }
+
+    fn from_os_arch(os: &str, architecture: &str) -> Self {
+        match (os, architecture) {
+            ("linux", "x86_64") => Self::LinuxX86_64,
+            ("linux", "aarch64") => Self::LinuxAarch64,
+            ("macos", "x86_64") => Self::MacOsIntel,
+            ("macos", "aarch64") => Self::MacOsAppleSilicon,
+            ("windows", "x86_64") => Self::WindowsX64,
+            ("windows", "aarch64") => Self::WindowsArm64,
+            _ => Self::Unsupported,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComputerBackendProbeV1 {
+    /// `None` means the adapter cannot authoritatively report a remote host.
+    pub host_platform: Option<ComputerHostPlatformV1>,
     pub linux_host: bool,
     pub kvm_accessible: bool,
     pub qemu_available: bool,
@@ -164,193 +196,6 @@ pub enum ComputerBackendEventKindV1 {
     Released,
 }
 
-/// Host-side byte stream to one app-owned guest serial port. Its I/O methods
-/// stay crate-private so task/provider code cannot bypass the typed protocol.
-pub struct ComputerGuestChannelV1 {
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    pub(crate) session_id: String,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    pub(crate) lease_generation: u64,
-    #[cfg(unix)]
-    _stream: std::os::unix::net::UnixStream,
-}
-
-/// Token minted only by the trusted guest protocol verifier after it has
-/// authenticated a fresh per-boot transcript and matched the active lease.
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct ComputerGuestReadinessV1 {
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    pub(crate) session_id: String,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    pub(crate) lease_generation: u64,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    pub(crate) guest_boot_id: String,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    pub(crate) transcript_sha256: String,
-}
-
-impl ComputerGuestReadinessV1 {
-    #[allow(dead_code)] // Used by the authenticated guest transport implemented in the dependent issue.
-    pub(crate) fn new(
-        session_id: String,
-        lease_generation: u64,
-        guest_boot_id: String,
-        transcript_sha256: String,
-    ) -> Self {
-        Self {
-            session_id,
-            lease_generation,
-            guest_boot_id,
-            transcript_sha256,
-        }
-    }
-}
-
-impl ComputerGuestChannelV1 {
-    #[cfg(unix)]
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    pub(crate) fn new(
-        session_id: String,
-        lease_generation: u64,
-        stream: std::os::unix::net::UnixStream,
-    ) -> Self {
-        Self {
-            session_id,
-            lease_generation,
-            _stream: stream,
-        }
-    }
-
-    #[cfg(unix)]
-    #[allow(dead_code)] // The typed guest protocol owns all reads and writes on this channel.
-    pub(crate) fn io(&mut self) -> &mut std::os::unix::net::UnixStream {
-        &mut self._stream
-    }
-
-    pub fn session_id(&self) -> &str {
-        &self.session_id
-    }
-
-    pub fn lease_generation(&self) -> u64 {
-        self.lease_generation
-    }
-}
-
-/// Typed VM operations. No operation accepts a model supplied path or QEMU argument.
-pub trait ComputerBackend: Send + Sync {
-    fn probe(&self) -> Result<ComputerBackendProbeV1, ComputerBackendErrorV1>;
-    fn prepare(
-        &self,
-        session: &ComputerSessionV1,
-        overlay: GuestImageOverlayV1,
-        now_unix_ms: u64,
-    ) -> Result<(ComputerMachineHandleV1, ComputerBackendEventV1), ComputerBackendErrorV1>;
-    fn recover(&self) -> Result<Vec<ComputerBackendEventV1>, ComputerBackendErrorV1>;
-    fn boot(
-        &self,
-        session: &ComputerSessionV1,
-        handle: &ComputerMachineHandleV1,
-        now_unix_ms: u64,
-    ) -> Result<ComputerBackendEventV1, ComputerBackendErrorV1>;
-    fn wait_ready(
-        &self,
-        session: &ComputerSessionV1,
-        handle: &ComputerMachineHandleV1,
-        timeout: Duration,
-        now_unix_ms: u64,
-    ) -> Result<ComputerBackendEventV1, ComputerBackendErrorV1>;
-    fn connect(
-        &self,
-        session: &ComputerSessionV1,
-        handle: &ComputerMachineHandleV1,
-        now_unix_ms: u64,
-    ) -> Result<ComputerGuestChannelV1, ComputerBackendErrorV1>;
-    #[cfg(target_os = "linux")]
-    fn authenticate_guest(
-        &self,
-        session: &ComputerSessionV1,
-        handle: &ComputerMachineHandleV1,
-        now_unix_ms: u64,
-    ) -> Result<AuthenticatedGuestChannelV1, ComputerBackendErrorV1>;
-    fn open_guest_action_journal(
-        &self,
-        session: &ComputerSessionV1,
-        handle: &ComputerMachineHandleV1,
-        now_unix_ms: u64,
-    ) -> Result<GuestActionJournalV1, ComputerBackendErrorV1>;
-    /// Capture one bounded frame from the private VM display socket. Backends
-    /// without an independently verified local display return unsupported.
-    fn capture_display_frame(
-        &self,
-        _session: &ComputerSessionV1,
-        _handle: &ComputerMachineHandleV1,
-        _now_unix_ms: u64,
-    ) -> Result<ComputerDisplayFrameV1, ComputerBackendErrorV1> {
-        Err(ComputerBackendErrorV1::UnsupportedHost)
-    }
-    /// Send one validated local input event through the controller-owned
-    /// display proxy. Model/provider paths cannot supply a socket or endpoint.
-    fn send_display_input(
-        &self,
-        _session: &ComputerSessionV1,
-        _handle: &ComputerMachineHandleV1,
-        _input: &ComputerDisplayInputV1,
-        _now_unix_ms: u64,
-    ) -> Result<(), ComputerBackendErrorV1> {
-        Err(ComputerBackendErrorV1::UnsupportedHost)
-    }
-    fn mark_guest_ready(
-        &self,
-        session: &ComputerSessionV1,
-        handle: &ComputerMachineHandleV1,
-        readiness: ComputerGuestReadinessV1,
-        now_unix_ms: u64,
-    ) -> Result<ComputerBackendEventV1, ComputerBackendErrorV1>;
-    fn suspend(
-        &self,
-        session: &ComputerSessionV1,
-        handle: &ComputerMachineHandleV1,
-        now_unix_ms: u64,
-    ) -> Result<ComputerBackendEventV1, ComputerBackendErrorV1>;
-    fn resume(
-        &self,
-        session: &ComputerSessionV1,
-        handle: &ComputerMachineHandleV1,
-        now_unix_ms: u64,
-    ) -> Result<ComputerBackendEventV1, ComputerBackendErrorV1>;
-    fn snapshot(
-        &self,
-        session: &ComputerSessionV1,
-        handle: &ComputerMachineHandleV1,
-        now_unix_ms: u64,
-    ) -> Result<ComputerMachineRecordV1, ComputerBackendErrorV1>;
-    fn cancel(
-        &self,
-        session: &ComputerSessionV1,
-        handle: &ComputerMachineHandleV1,
-        now_unix_ms: u64,
-    ) -> Result<ComputerBackendEventV1, ComputerBackendErrorV1>;
-    fn stop(
-        &self,
-        session: &ComputerSessionV1,
-        handle: &ComputerMachineHandleV1,
-        now_unix_ms: u64,
-    ) -> Result<ComputerBackendEventV1, ComputerBackendErrorV1>;
-    fn collect(
-        &self,
-        session: &ComputerSessionV1,
-        handle: &ComputerMachineHandleV1,
-        now_unix_ms: u64,
-    ) -> Result<ComputerMachineRecordV1, ComputerBackendErrorV1>;
-    fn release(
-        &self,
-        session: &ComputerSessionV1,
-        handle: &ComputerMachineHandleV1,
-        now_unix_ms: u64,
-    ) -> Result<ComputerBackendEventV1, ComputerBackendErrorV1>;
-}
-
 #[cfg(target_os = "linux")]
 pub(super) fn validate_runtime_root(path: &Path) -> Result<(), ComputerBackendErrorV1> {
     std::fs::create_dir_all(path).map_err(|_| ComputerBackendErrorV1::Io)?;
@@ -375,4 +220,33 @@ pub(super) fn validate_runtime_root(path: &Path) -> Result<(), ComputerBackendEr
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod host_platform_tests {
+    use super::ComputerHostPlatformV1 as Platform;
+
+    #[test]
+    fn platform_detection_keeps_os_architecture_pairs_distinct() {
+        assert_eq!(
+            Platform::from_os_arch("macos", "x86_64"),
+            Platform::MacOsIntel
+        );
+        assert_eq!(
+            Platform::from_os_arch("macos", "aarch64"),
+            Platform::MacOsAppleSilicon
+        );
+        assert_eq!(
+            Platform::from_os_arch("windows", "x86_64"),
+            Platform::WindowsX64
+        );
+        assert_eq!(
+            Platform::from_os_arch("linux", "aarch64"),
+            Platform::LinuxAarch64
+        );
+        assert_eq!(
+            Platform::from_os_arch("freebsd", "x86_64"),
+            Platform::Unsupported
+        );
+    }
 }

@@ -35,7 +35,8 @@ pub(crate) use backend::verify_qemu_launcher_containment_v1;
 pub use backend::{
     ComputerBackend, ComputerBackendErrorV1, ComputerBackendEventKindV1, ComputerBackendEventV1,
     ComputerBackendProbeV1, ComputerDisplayFrameV1, ComputerDisplayInputV1, ComputerGuestChannelV1,
-    ComputerGuestReadinessV1, ComputerMachineHandleV1, ComputerMachineRecordV1,
-    ComputerMachineStateV1, ComputerResourceLimitsV1, LocalKvmComputerBackend,
+    ComputerGuestReadinessV1, ComputerHostPlatformV1, ComputerMachineHandleV1,
+    ComputerMachineRecordV1, ComputerMachineStateV1, ComputerResourceLimitsV1,
+    LocalKvmComputerBackend,
 };
 pub use contract::*;

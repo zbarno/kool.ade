@@ -4,6 +4,7 @@ impl ComputerBackend for RemoteComputerBackendV1 {
     fn probe(&self) -> Result<ComputerBackendProbeV1, Error> {
         let advertisement = self.fetch_advertisement()?;
         Ok(ComputerBackendProbeV1 {
+            host_platform: None,
             linux_host: true,
             kvm_accessible: advertisement.cpu_virtualization_available,
             qemu_available: true,

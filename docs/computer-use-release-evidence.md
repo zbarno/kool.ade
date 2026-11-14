@@ -23,7 +23,7 @@ not a pass.
 | R3 encrypted personal VM and synthetic authentication (#387) | The implementation is merged. The synthetic IdP/MFA/browser-restart job passed in candidate run 43189760047. | No personal persistent VM was accepted on a real host. | `PERSONAL_VM_R3_ENABLED` is `false`; keep personal mode unavailable until its threat-model and real-host evidence are accepted. |
 | R4 sensitive external actions (#388) | The policy validator rejects `HighImpactExternalAction` until exact transaction grants exist; denial and stale-approval tests are present. | No checkout, publication, or other external side-effect flow is certified. No real money or real accounts are used in CI. | High-impact external actions remain unsupported. A future gate needs synthetic-account allow/deny, changed-detail, duplicate-execution, and uncertain-outcome evidence. |
 | R5 remote VM workers (#390) | Remote worker code merged in [PR #572](https://github.com/zbarno/kool.ade/pull/572). Separate worker identity/stream fixtures merged in [PR #595](https://github.com/zbarno/kool.ade/pull/595); the tests reject wrong host fingerprints and cross-worker sessions. | These fixtures use in-process stdio streams. They are not real SSH connections or separate physical hosts. | `remote_computer_use_release_gate_open_v1()` is `false`; #390 remains open for independent real-host worker, restart, interruption, and competing-operator evidence. |
-| R5 macOS and Windows host adapters (#395) | The issue remains open; no adapter is certified. | No macOS or Windows host VM evidence is recorded. | Unsupported. Do not start adapter certification until the verified Linux baseline required by #395 is accepted. |
+| R5 macOS and Windows host adapters (#395) | The Linux KVM baseline prerequisite was accepted on 2026-11-14; no macOS or Windows adapter is certified. See [#392 comment 6874210066](https://github.com/zbarno/kool.ade/issues/392#issuecomment-6874210066). | No macOS Intel, macOS Apple Silicon, or Windows x64 host VM evidence is recorded. | Those hosts remain unsupported until their adapters, deterministic security checks, and independent real-host evidence pass the #392 release gate. |
 
 ## Reproducibility record
 
@@ -83,7 +83,7 @@ are.
   transaction grants exist.
 - Remote VM scheduling remains disabled by
   `remote_computer_use_release_gate_open_v1() = false`.
-- macOS and Windows host adapters remain unsupported while #395 is open.
+- macOS Intel, macOS Apple Silicon, and Windows x64 host adapters remain unsupported until their independent #392 release gates pass.
 - Accessibility-tree inspection is unsupported in the guest v1 agent.
 - No adversarial guest/host isolation matrix, repeated resource/cleanup run,
   or accepted provisioning/screen/idle performance measurements are recorded
