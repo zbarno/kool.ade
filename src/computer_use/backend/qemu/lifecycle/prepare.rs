@@ -1,6 +1,8 @@
 use super::super::super::registry::read_owner;
 use super::super::*;
-use crate::computer_use::{ComputerBackendProbeV1 as Probe, ComputerSessionClassV1};
+use crate::computer_use::{
+    ComputerBackendProbeV1 as Probe, ComputerHostPlatformV1, ComputerSessionClassV1,
+};
 use std::fs::{self, OpenOptions};
 use std::sync::{Arc, atomic::AtomicU8};
 
@@ -9,7 +11,8 @@ use overlay_guard::OverlayPreparationGuard;
 
 impl LocalKvmComputerBackend {
     pub(super) fn probe_impl(&self) -> Result<Probe, Error> {
-        if unsafe { libc::geteuid() } == 0 {
+        let host_platform = ComputerHostPlatformV1::current();
+        if host_platform != ComputerHostPlatformV1::LinuxX86_64 || unsafe { libc::geteuid() } == 0 {
             return Err(Error::UnsupportedHost);
         }
         crate::computer_use::process_security::verify_child_restrictions()
@@ -27,6 +30,7 @@ impl LocalKvmComputerBackend {
         let cgroups = CgroupV2::new(&self.cgroup_root)?;
         cgroups.probe()?;
         Ok(Probe {
+            host_platform: Some(host_platform),
             linux_host: true,
             kvm_accessible,
             qemu_available: true,

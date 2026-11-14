@@ -216,7 +216,7 @@ impl ComputerActionV1 {
         Ok(())
     }
 
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
     pub fn verify_guest_helper_authorization(
         &self,
         expected_key_id: &str,
@@ -249,7 +249,7 @@ impl ComputerActionV1 {
             .is_ok_and(|payload| verifying_key.verify(&payload, &signature).is_ok())
     }
 
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
     pub(crate) fn same_helper_action(&self, other: &Self) -> bool {
         let mut left = self.clone();
         let mut right = other.clone();
@@ -259,7 +259,7 @@ impl ComputerActionV1 {
     }
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn helper_authorization_payload(
     action: &ComputerActionV1,
     signer_key_id: &str,
@@ -284,7 +284,7 @@ fn helper_authorization_payload(
     Ok(payload)
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", test))]
 fn decode_helper_hex(value: &str) -> Result<Vec<u8>, ()> {
     let (pairs, remainder) = value.as_bytes().as_chunks::<2>();
     if !remainder.is_empty() {

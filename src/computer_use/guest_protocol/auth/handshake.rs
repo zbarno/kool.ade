@@ -28,7 +28,7 @@ pub(crate) struct GuestHandshakeCompleteV1 {
 }
 
 pub(crate) fn host_handshake(
-    stream: &mut (impl Read + Write),
+    stream: &mut (impl Read + Write + ?Sized),
     config: &GuestBootConfigV1,
     session: &ComputerSessionV1,
     now_unix_ms: u64,

@@ -10,6 +10,8 @@ pub const COMPUTER_USE_REMOTE_WORKER_PROTOCOL_VERSION_V1: u16 = 1;
 #[serde(rename_all = "snake_case")]
 pub enum ComputerHypervisorV1 {
     QemuKvm,
+    QemuHvf,
+    QemuWhpx,
 }
 
 /// Device and wire identity pinned by the controller for one enrolled remote
@@ -82,7 +84,10 @@ impl ComputerTargetV1 {
             }
             Self::LocalVm {
                 machine_id,
-                hypervisor: ComputerHypervisorV1::QemuKvm,
+                hypervisor:
+                    ComputerHypervisorV1::QemuKvm
+                    | ComputerHypervisorV1::QemuHvf
+                    | ComputerHypervisorV1::QemuWhpx,
             } => {
                 if !canonical_uuid(machine_id) {
                     return Err("local machine ID is invalid");

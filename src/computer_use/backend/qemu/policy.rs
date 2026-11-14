@@ -65,10 +65,17 @@ pub(super) fn target_machine_id<'a>(
         crate::computer_use::ComputerTargetV1::RemoteVmWorker { .. } => {
             Err(Error::UnsupportedTarget)
         }
-        target if remote_worker_id.is_none() => {
-            target.local_machine_id().ok_or(Error::UnsupportedTarget)
+        crate::computer_use::ComputerTargetV1::LocalKvm { machine_id }
+            if remote_worker_id.is_none() =>
+        {
+            Ok(machine_id)
         }
-        _ => Err(Error::UnsupportedTarget),
+        crate::computer_use::ComputerTargetV1::LocalVm {
+            machine_id,
+            hypervisor: crate::computer_use::ComputerHypervisorV1::QemuKvm,
+        } if remote_worker_id.is_none() => Ok(machine_id),
+        crate::computer_use::ComputerTargetV1::LocalVm { .. } => Err(Error::UnsupportedTarget),
+        crate::computer_use::ComputerTargetV1::LocalKvm { .. } => Err(Error::UnsupportedTarget),
     }
 }
 

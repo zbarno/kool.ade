@@ -26,6 +26,23 @@ pub const MAX_IMAGE_ARTIFACT_BYTES: u64 = 16 * 1024 * 1024 * 1024;
 #[serde(rename_all = "snake_case")]
 pub enum ComputerGuestArchitectureV1 {
     X86_64,
+    Aarch64,
+}
+
+impl ComputerGuestArchitectureV1 {
+    pub const fn artifact_name(self) -> &'static str {
+        match self {
+            Self::X86_64 => "koolade-computer-use-guest-x86_64.qcow2",
+            Self::Aarch64 => "koolade-computer-use-guest-aarch64.qcow2",
+        }
+    }
+
+    pub const fn debian_architecture(self) -> &'static str {
+        match self {
+            Self::X86_64 => "amd64",
+            Self::Aarch64 => "arm64",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -73,7 +90,7 @@ impl GuestImageEntryV1 {
             ));
         }
         if self.companion_protocol_version == 0
-            || self.artifact_name != "koolade-computer-use-guest-x86_64.qcow2"
+            || self.artifact_name != self.architecture.artifact_name()
             || !is_git_revision(&self.source_revision)
             || self.guest_release.trim().is_empty()
             || self.guest_release.len() > 80

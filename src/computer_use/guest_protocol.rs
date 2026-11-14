@@ -7,17 +7,17 @@ mod types;
 
 #[cfg(target_os = "linux")]
 pub mod agent;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 mod host;
 
 pub use auth::{GuestBootConfigV1, GuestHandshakeErrorV1};
 pub use frame::{MAX_CONTROL_FRAME_BYTES, MAX_SCREENSHOT_PNG_BYTES};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 pub use host::{
     AuthenticatedGuestChannelV1, AuthorizedComputerUseSessionV1, ComputerUseAuthorityRegistryV1,
     ComputerUsePermissionV1, GuestHostTransportV1,
 };
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 pub(crate) use host::{GuestActionTransportV1, GuestAuthenticatedContextV1};
 pub use journal::{
     GuestActionJournalStatusV1, GuestActionJournalV1, GuestJournalErrorV1, GuestReplayDecisionV1,

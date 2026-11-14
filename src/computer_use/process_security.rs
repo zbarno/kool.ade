@@ -136,9 +136,13 @@ pub(crate) fn verify_child_restrictions() -> io::Result<()> {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
         use std::{os::unix::process::CommandExt, process::Command};
-        let executable = std::path::Path::new("/usr/bin/true");
-        crate::computer_use::validate_trusted_system_executable(executable)?;
-        let mut command = Command::new(executable);
+        // Resolve the fixed system alias first, then validate and execute its
+        // canonical target. Some supported Linux images expose `true` through
+        // a symlink in `/usr/bin`; the target still has to pass the same
+        // root-ownership, mode, capability, and ancestor checks.
+        let executable = std::path::Path::new("/usr/bin/true").canonicalize()?;
+        crate::computer_use::validate_trusted_system_executable(&executable)?;
+        let mut command = Command::new(&executable);
         // SAFETY: the child callback only installs no-new-privileges and a
         // fixed seccomp filter before exec; it accesses no shared Rust state.
         unsafe {

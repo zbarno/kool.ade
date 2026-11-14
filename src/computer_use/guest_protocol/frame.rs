@@ -7,7 +7,7 @@ pub const MAX_CONTROL_FRAME_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_SCREENSHOT_PNG_BYTES: usize = 2_500_000;
 
 pub(crate) fn write_frame<T: Serialize>(
-    writer: &mut impl Write,
+    writer: &mut (impl Write + ?Sized),
     value: &T,
 ) -> Result<(), GuestProtocolErrorV1> {
     let bytes = serde_json::to_vec(value).map_err(|_| GuestProtocolErrorV1::Malformed)?;
@@ -22,7 +22,7 @@ pub(crate) fn write_frame<T: Serialize>(
 }
 
 pub(crate) fn read_frame<T: DeserializeOwned>(
-    reader: &mut impl Read,
+    reader: &mut (impl Read + ?Sized),
 ) -> Result<T, GuestProtocolErrorV1> {
     let mut prefix = [0_u8; 4];
     reader

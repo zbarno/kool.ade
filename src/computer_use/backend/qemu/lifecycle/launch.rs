@@ -102,6 +102,14 @@ impl LocalKvmComputerBackend {
                 )
                 .into();
             }
+            args.push("-qmp".into());
+            args.push(
+                format!(
+                    "unix:{},server=on,wait=off",
+                    machine.directory.join("qemu-qmp.sock").display()
+                )
+                .into(),
+            );
         }
         let mut command = Command::new(qemu_path);
         commands::configure_command(&mut command, &args, &machine.directory);

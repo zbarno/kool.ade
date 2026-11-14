@@ -54,6 +54,30 @@ fn screenshot_validation_rejects_wrong_digest_dimensions_and_oversize() {
     assert_eq!(validate(&too_large), Err(GuestProtocolErrorV1::Oversized));
 }
 
+/// Successful staged-app launch and app management have no screen payload;
+/// the authenticated completion remains valid without an observation frame.
+#[test]
+fn staged_app_completion_does_not_require_an_observation_frame() {
+    let outcome = super::actions::completed_without_observation(
+        crate::computer_use::ComputerOperationV1::LaunchApprovedStagedTaskApp,
+        17,
+    )
+    .expect("staged app launches complete without a frame");
+    assert_eq!(outcome.reply.action_sequence, 17);
+    assert_eq!(
+        outcome.reply.result,
+        crate::computer_use::guest_protocol::GuestOperationResultV1::Completed
+    );
+    assert!(outcome.observation.is_none());
+    assert!(
+        super::actions::completed_without_observation(
+            crate::computer_use::ComputerOperationV1::ObserveScreen,
+            18,
+        )
+        .is_none()
+    );
+}
+
 fn tiny_png() -> Vec<u8> {
     let pixels = [0_u8, 0, 0, 255, 255, 255];
     let mut bytes = Vec::new();

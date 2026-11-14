@@ -2,6 +2,8 @@ use std::{path::PathBuf, time::Duration};
 
 use ed25519_dalek::VerifyingKey;
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use crate::computer_use::guest_protocol::AuthenticatedGuestChannelV1;
 use crate::computer_use::{
     ComputerBackendErrorV1 as Error, ComputerBackendEventV1 as Event,
     ComputerBackendProbeV1 as Probe, ComputerGuestChannelV1, ComputerGuestReadinessV1,
@@ -71,6 +73,16 @@ impl ComputerBackend for LocalKvmComputerBackend {
         _handle: &Handle,
         _now: u64,
     ) -> Result<ComputerGuestChannelV1, Error> {
+        Err(Error::UnsupportedHost)
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    fn authenticate_guest(
+        &self,
+        _session: &ComputerSessionV1,
+        _handle: &Handle,
+        _now: u64,
+    ) -> Result<AuthenticatedGuestChannelV1, Error> {
         Err(Error::UnsupportedHost)
     }
 

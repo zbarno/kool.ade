@@ -17,8 +17,8 @@ pub use qemu_unsupported::LocalKvmComputerBackend;
 pub use types::{
     ComputerBackend, ComputerBackendEventKindV1, ComputerBackendEventV1, ComputerBackendProbeV1,
     ComputerDisplayFrameV1, ComputerDisplayInputV1, ComputerGuestChannelV1,
-    ComputerGuestReadinessV1, ComputerMachineHandleV1, ComputerMachineRecordV1,
-    ComputerMachineStateV1, ComputerResourceLimitsV1,
+    ComputerGuestReadinessV1, ComputerHostPlatformV1, ComputerMachineHandleV1,
+    ComputerMachineRecordV1, ComputerMachineStateV1, ComputerResourceLimitsV1,
 };
 
 /// Read-only check that the fixed QEMU launcher is a trusted native executable.
