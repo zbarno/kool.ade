@@ -1,8 +1,10 @@
 # Computer Use host adapter design
 
-Status: implementation design. macOS and Windows host virtualization remain
-unavailable. This document records candidate hypervisors and the security
-conditions an adapter must meet before it can be enabled.
+Status: implementation design with an offline macOS QEMU/HVF launch planner.
+macOS and Windows host virtualization remain unavailable. The launch planner
+does not start QEMU or establish process, resource, or storage containment.
+This document records candidate hypervisors and the security conditions an
+adapter must meet before it can be enabled.
 
 ## Candidate host and guest pairs
 
@@ -61,6 +63,17 @@ grant protocol; the VM must not receive an unrestricted host directory mount.
 
 ### macOS
 
+- The current macOS code produces a fixed, offline QEMU launch plan for the
+  native host architecture: `qemu-system-x86_64` with `q35` on Intel, and
+  `qemu-system-aarch64` with `virt` on Apple silicon. Both plans require HVF,
+  disable guest networking and QEMU defaults, validate CPU/memory inputs, and
+  accept only absolute, restricted-character path strings without QEMU option
+  separators. Unix socket paths are limited to the macOS `sun_path` bound.
+- This planner is not connected to a process launcher or `ComputerBackend`.
+  It does not verify path ownership/symlinks, image architecture/provenance,
+  QEMU binary trust, VM resource enforcement, guest/display socket peer
+  identity, cancellation, or recovery. No plan may be executed until those
+  controls are implemented and reviewed; `release_enabled` remains false.
 - Probe Intel versus Apple silicon host identity and HVF availability
   independently. Keep the backend unavailable if the result is unknown.
 - Use an architecture-matched signed guest image and the existing signed

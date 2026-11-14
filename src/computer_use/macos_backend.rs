@@ -6,6 +6,9 @@
 
 use super::backend::ComputerHostPlatformV1;
 
+#[allow(dead_code)] // The launch plan remains disconnected while containment is incomplete.
+mod qemu_plan;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MacOsHvfBlocker {
     UnsupportedArchitecture,
