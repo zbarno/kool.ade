@@ -10,8 +10,8 @@ use std::{
 
 use crate::computer_use::{
     ComputerActionActorV1, ComputerActionPayloadV1, ComputerActionV1, ComputerBackend,
-    ComputerLifecycleV1, ComputerNetworkProfileV1, ComputerOperationV1,
-    MINIMUM_DISPOSABLE_VM_BUDGET_V1,
+    ComputerKeyV1, ComputerLifecycleV1, ComputerNetworkProfileV1, ComputerOperationV1, KeyCodeV1,
+    MINIMUM_DISPOSABLE_VM_BUDGET_V1, MouseButtonV1,
     guest_image::{
         ComputerGuestArchitectureV1, ComputerImageDownloadApprovalV1, GuestImageCacheV1,
         GuestImageCatalogGenerationFloorV1, GuestImageOverlayRequestV1, ImageCacheErrorV1,
@@ -103,6 +103,8 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
     session.policy.allowed_apps = session.allowed_apps.clone();
     session.policy.authorized_operations = BTreeSet::from([
         ComputerOperationV1::ObserveScreen,
+        ComputerOperationV1::MouseInput,
+        ComputerOperationV1::KeyboardInput,
         ComputerOperationV1::LaunchAllowedApp,
     ]);
     session.policy.resource_budget = MINIMUM_DISPOSABLE_VM_BUDGET_V1;
@@ -308,6 +310,195 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             return Err("authenticated guest screenshot is invalid or stale".into());
         }
 
+        let window = observation
+            .windows
+            .iter()
+            .find(|window| window.app_id.as_deref() == Some("chromium"))
+            .ok_or("Chromium window missing from authenticated observation")?;
+        let window_id = window.window_id.clone();
+        let frame_reference = crate::computer_use::ComputerFrameReferenceV1 {
+            frame_id: observation.frame_id.clone(),
+            display_generation: observation.display_generation,
+            observation_revision: observation.observation_revision,
+            display_width_px: observation.width_px,
+            display_height_px: observation.height_px,
+            device_scale_numerator: observation.device_scale_numerator,
+            device_scale_denominator: observation.device_scale_denominator,
+            window_id: window.window_id.clone(),
+            window_generation: window.generation,
+            window_bounds: window.bounds.clone(),
+        };
+        let click = action(
+            &session,
+            3,
+            ComputerOperationV1::MouseInput,
+            ComputerActionPayloadV1::MouseClick {
+                x: (window.bounds.left + (window.bounds.width_px / 2) as i32).max(0) as u32,
+                y: (window.bounds.top + (window.bounds.height_px / 2) as i32).max(0) as u32,
+                target: frame_reference,
+                button: MouseButtonV1::Primary,
+            },
+        );
+        authority
+            .execute(
+                &mut channel,
+                &journal,
+                &click,
+                unix_time_ms()?.saturating_add(60_000),
+                unix_time_ms()?,
+            )
+            .map_err(|error| format!("real guest mouse click: {error:?}"))?;
+        let mut input_observation = observe_frame(&authority, &mut channel, &journal, &session, 4)?;
+        let focus_address = action(
+            &session,
+            5,
+            ComputerOperationV1::KeyboardInput,
+            ComputerActionPayloadV1::KeyChord {
+                keys: vec![
+                    ComputerKeyV1::Named(KeyCodeV1::Control),
+                    ComputerKeyV1::Character('l'),
+                ],
+                window_id: window_id.clone(),
+                observation_revision: input_observation.observation_revision,
+            },
+        );
+        authority
+            .execute(
+                &mut channel,
+                &journal,
+                &focus_address,
+                unix_time_ms()?.saturating_add(60_000),
+                unix_time_ms()?,
+            )
+            .map_err(|error| format!("real guest keyboard shortcut: {error:?}"))?;
+        input_observation = observe_frame(&authority, &mut channel, &journal, &session, 6)?;
+        let address = action(
+            &session,
+            7,
+            ComputerOperationV1::KeyboardInput,
+            ComputerActionPayloadV1::TypeText {
+                text: "data:text/html,Koolade%20KVM%20input%20verified".into(),
+                window_id: window_id.clone(),
+                observation_revision: input_observation.observation_revision,
+            },
+        );
+        authority
+            .execute(
+                &mut channel,
+                &journal,
+                &address,
+                unix_time_ms()?.saturating_add(60_000),
+                unix_time_ms()?,
+            )
+            .map_err(|error| format!("real guest text input: {error:?}"))?;
+        input_observation = observe_frame(&authority, &mut channel, &journal, &session, 8)?;
+        let enter = action(
+            &session,
+            9,
+            ComputerOperationV1::KeyboardInput,
+            ComputerActionPayloadV1::KeyPress {
+                key: ComputerKeyV1::Named(KeyCodeV1::Enter),
+                window_id: window_id.clone(),
+                observation_revision: input_observation.observation_revision,
+            },
+        );
+        authority
+            .execute(
+                &mut channel,
+                &journal,
+                &enter,
+                unix_time_ms()?.saturating_add(60_000),
+                unix_time_ms()?,
+            )
+            .map_err(|error| format!("real guest Enter key: {error:?}"))?;
+        let input_frame = observe_frame(&authority, &mut channel, &journal, &session, 10)?;
+        if input_frame.screenshot_sha256 == observation.screenshot_sha256 {
+            return Err("real guest mouse and keyboard input did not change the screen".into());
+        }
+
+        // Human takeover atomically revokes the old agent capability. Handback
+        // repeats that fence before the agent can act again.
+        session.lifecycle = ComputerLifecycleV1::HumanControl;
+        session
+            .attest(controller_key_id.to_owned(), &controller_key)
+            .map_err(str::to_owned)?;
+        registry
+            .replace_actor(
+                session.clone(),
+                controller_key_id.to_owned(),
+                controller_key.verifying_key(),
+                ComputerActionActorV1::Human,
+                "implementer/v1".into(),
+                unix_time_ms()?,
+            )
+            .map_err(|error| format!("human takeover authority replacement: {error:?}"))?;
+        if authority
+            .execute(
+                &mut channel,
+                &journal,
+                &observe,
+                unix_time_ms()?.saturating_add(60_000),
+                unix_time_ms()?,
+            )
+            .is_ok()
+        {
+            return Err("agent authority remained usable after human takeover".into());
+        }
+        let human_authority = registry
+            .authorize(
+                &session.identity,
+                ComputerActionActorV1::Human,
+                "implementer/v1",
+                unix_time_ms()?,
+            )
+            .map_err(|error| format!("human takeover authorization: {error:?}"))?;
+        let human_action = action_as(
+            &session,
+            ComputerActionActorV1::Human,
+            11,
+            ComputerOperationV1::KeyboardInput,
+            ComputerActionPayloadV1::KeyPress {
+                key: ComputerKeyV1::Named(KeyCodeV1::Escape),
+                window_id: window_id.clone(),
+                observation_revision: input_frame.observation_revision,
+            },
+        );
+        human_authority
+            .execute(
+                &mut channel,
+                &journal,
+                &human_action,
+                unix_time_ms()?.saturating_add(60_000),
+                unix_time_ms()?,
+            )
+            .map_err(|error| format!("human-controlled guest keypress: {error:?}"))?;
+        session.lifecycle = ComputerLifecycleV1::Delegated;
+        session
+            .attest(controller_key_id.to_owned(), &controller_key)
+            .map_err(str::to_owned)?;
+        registry
+            .replace_actor(
+                session.clone(),
+                controller_key_id.to_owned(),
+                controller_key.verifying_key(),
+                ComputerActionActorV1::Agent,
+                "implementer/v1".into(),
+                unix_time_ms()?,
+            )
+            .map_err(|error| format!("agent handback authority replacement: {error:?}"))?;
+        if human_authority
+            .execute(
+                &mut channel,
+                &journal,
+                &human_action,
+                unix_time_ms()?.saturating_add(60_000),
+                unix_time_ms()?,
+            )
+            .is_ok()
+        {
+            return Err("human authority remained usable after agent handback".into());
+        }
+
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         let display_frame = loop {
             match backend.capture_display_frame(&session, &handle, unix_time_ms()?) {
@@ -349,12 +540,53 @@ fn action(
     operation: ComputerOperationV1,
     payload: ComputerActionPayloadV1,
 ) -> ComputerActionV1 {
+    action_as(
+        session,
+        ComputerActionActorV1::Agent,
+        sequence,
+        operation,
+        payload,
+    )
+}
+
+fn observe_frame(
+    authority: &crate::computer_use::guest_protocol::AuthorizedComputerUseSessionV1,
+    channel: &mut crate::computer_use::guest_protocol::AuthenticatedGuestChannelV1,
+    journal: &crate::computer_use::guest_protocol::GuestActionJournalV1,
+    session: &crate::computer_use::ComputerSessionV1,
+    sequence: u64,
+) -> Result<crate::computer_use::guest_protocol::GuestObservationV1, String> {
+    authority
+        .execute(
+            channel,
+            journal,
+            &action(
+                session,
+                sequence,
+                ComputerOperationV1::ObserveScreen,
+                ComputerActionPayloadV1::ObserveScreen,
+            ),
+            unix_time_ms()?.saturating_add(60_000),
+            unix_time_ms()?,
+        )
+        .map_err(|error| format!("observe after real guest input: {error:?}"))?
+        .observation
+        .ok_or_else(|| "observe after real guest input returned no frame".into())
+}
+
+fn action_as(
+    session: &crate::computer_use::ComputerSessionV1,
+    actor: ComputerActionActorV1,
+    sequence: u64,
+    operation: ComputerOperationV1,
+    payload: ComputerActionPayloadV1,
+) -> ComputerActionV1 {
     ComputerActionV1 {
         schema_version: 1,
         session_id: session.identity.session_id.clone(),
         action_sequence: sequence,
         idempotency_key: uuid::Uuid::new_v4().to_string(),
-        actor: ComputerActionActorV1::Agent,
+        actor,
         lease_generation: session.lease.generation,
         approval_generation: session.approval_generation,
         cancellation_generation: session.cancellation_generation,
