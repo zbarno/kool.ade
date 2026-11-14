@@ -565,8 +565,8 @@ else
     "$(debugfs -V 2>&1 | head -1)" \
     > "$output_dir/${base_name}.builder-versions.txt"
 fi
-sha256sum "$output_dir/${base_name}.sbom.cdx.json" \
-  > "$output_dir/${base_name}.sbom.sha256"
+(cd "$output_dir" && sha256sum \
+  "${base_name}.sbom.cdx.json" > "${base_name}.sbom.sha256")
 source_revision="${GITHUB_SHA:-$(git -C "$root_dir" rev-parse HEAD)}"
 printf '%s\n' "$source_revision" > "$output_dir/${base_name}.source-revision"
 printf 'candidate image only; no signed promotion or real-KVM readiness\n' \
