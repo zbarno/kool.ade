@@ -24,11 +24,13 @@ pub(crate) mod personal_storage;
 pub use personal_storage::{
     PersonalVmProfileStoreV1, PersonalVmProfileV1, PersonalVmStorageErrorV1,
 };
+#[cfg(any(target_os = "macos", test))]
+pub(crate) mod macos_backend;
 #[cfg(target_os = "linux")]
 pub(crate) mod process_security;
 pub mod remote_worker;
 #[cfg(any(target_os = "windows", test))]
-mod windows_backend;
+pub(crate) mod windows_backend;
 
 #[cfg(target_os = "linux")]
 pub(crate) use host_executable::validate_trusted_system_executable;
