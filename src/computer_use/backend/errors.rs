@@ -1,3 +1,5 @@
+use super::ComputerHostPlatformV1;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ComputerBackendErrorV1 {
     UnsupportedHost,
@@ -31,10 +33,26 @@ impl std::fmt::Display for ComputerBackendErrorV1 {
             write!(
                 f,
                 "computer-use backend unavailable: {}",
-                unsupported_host_diagnostic(std::env::consts::OS, std::env::consts::ARCH)
+                unsupported_host_platform_diagnostic(ComputerHostPlatformV1::current())
             )
         } else {
             write!(f, "computer-use backend error: {self:?}")
+        }
+    }
+}
+
+fn unsupported_host_platform_diagnostic(platform: ComputerHostPlatformV1) -> &'static str {
+    match platform {
+        ComputerHostPlatformV1::LinuxX86_64 => unsupported_host_diagnostic("linux", "x86_64"),
+        ComputerHostPlatformV1::LinuxAarch64 => unsupported_host_diagnostic("linux", "aarch64"),
+        ComputerHostPlatformV1::MacOsIntel => unsupported_host_diagnostic("macos", "x86_64"),
+        ComputerHostPlatformV1::MacOsAppleSilicon => {
+            unsupported_host_diagnostic("macos", "aarch64")
+        }
+        ComputerHostPlatformV1::WindowsX64 => unsupported_host_diagnostic("windows", "x86_64"),
+        ComputerHostPlatformV1::WindowsArm64 => unsupported_host_diagnostic("windows", "aarch64"),
+        ComputerHostPlatformV1::Unsupported => {
+            "this operating system and architecture are unsupported."
         }
     }
 }
@@ -65,7 +83,10 @@ impl std::error::Error for ComputerBackendErrorV1 {}
 
 #[cfg(test)]
 mod tests {
-    use super::{ComputerBackendErrorV1, unsupported_host_diagnostic};
+    use super::{
+        ComputerBackendErrorV1, ComputerHostPlatformV1 as Platform, unsupported_host_diagnostic,
+        unsupported_host_platform_diagnostic,
+    };
 
     #[test]
     fn unsupported_host_errors_name_each_platform_gate() {
@@ -87,10 +108,18 @@ mod tests {
         assert!(
             ComputerBackendErrorV1::UnsupportedHost
                 .to_string()
-                .contains(unsupported_host_diagnostic(
-                    std::env::consts::OS,
-                    std::env::consts::ARCH
-                ))
+                .contains(unsupported_host_platform_diagnostic(Platform::current()))
+        );
+    }
+
+    #[test]
+    fn unsupported_host_diagnostics_use_native_host_architecture() {
+        assert!(
+            unsupported_host_platform_diagnostic(Platform::MacOsAppleSilicon)
+                .contains("macOS Apple Silicon")
+        );
+        assert!(
+            unsupported_host_platform_diagnostic(Platform::WindowsArm64).contains("Windows ARM64")
         );
     }
 }
