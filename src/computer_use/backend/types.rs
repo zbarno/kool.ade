@@ -8,38 +8,11 @@ use super::ComputerBackendErrorV1;
 
 mod backend;
 mod guest_channel;
+mod platform;
 
 pub use backend::ComputerBackend;
 pub use guest_channel::{ComputerGuestChannelV1, ComputerGuestReadinessV1};
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ComputerHostPlatformV1 {
-    LinuxX86_64,
-    LinuxAarch64,
-    MacOsIntel,
-    MacOsAppleSilicon,
-    WindowsX64,
-    WindowsArm64,
-    Unsupported,
-}
-
-impl ComputerHostPlatformV1 {
-    pub fn current() -> Self {
-        Self::from_os_arch(std::env::consts::OS, std::env::consts::ARCH)
-    }
-
-    fn from_os_arch(os: &str, architecture: &str) -> Self {
-        match (os, architecture) {
-            ("linux", "x86_64") => Self::LinuxX86_64,
-            ("linux", "aarch64") => Self::LinuxAarch64,
-            ("macos", "x86_64") => Self::MacOsIntel,
-            ("macos", "aarch64") => Self::MacOsAppleSilicon,
-            ("windows", "x86_64") => Self::WindowsX64,
-            ("windows", "aarch64") => Self::WindowsArm64,
-            _ => Self::Unsupported,
-        }
-    }
-}
+pub use platform::ComputerHostPlatformV1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComputerBackendProbeV1 {
@@ -221,33 +194,4 @@ pub(super) fn validate_runtime_root(path: &Path) -> Result<(), ComputerBackendEr
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod host_platform_tests {
-    use super::ComputerHostPlatformV1 as Platform;
-
-    #[test]
-    fn platform_detection_keeps_os_architecture_pairs_distinct() {
-        assert_eq!(
-            Platform::from_os_arch("macos", "x86_64"),
-            Platform::MacOsIntel
-        );
-        assert_eq!(
-            Platform::from_os_arch("macos", "aarch64"),
-            Platform::MacOsAppleSilicon
-        );
-        assert_eq!(
-            Platform::from_os_arch("windows", "x86_64"),
-            Platform::WindowsX64
-        );
-        assert_eq!(
-            Platform::from_os_arch("linux", "aarch64"),
-            Platform::LinuxAarch64
-        );
-        assert_eq!(
-            Platform::from_os_arch("freebsd", "x86_64"),
-            Platform::Unsupported
-        );
-    }
 }
