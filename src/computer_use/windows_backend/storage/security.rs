@@ -18,6 +18,8 @@ use windows_sys::Win32::{
     Storage::FileSystem::FILE_ALL_ACCESS,
 };
 
+use super::acl_memory::{read_current_process_bytes, read_current_process_value};
+
 pub(super) struct PrivateDirectorySecurity {
     descriptor: *mut core::ffi::c_void,
     pub(super) attributes: SECURITY_ATTRIBUTES,
@@ -215,7 +217,9 @@ unsafe fn acl_has_only_user_and_system_full_access(
         }
         // SAFETY: GetAce succeeded and the complete header was checked to lie
         // within AclBytesInUse before this potentially unaligned copy.
-        let header = unsafe { ace.cast::<ACE_HEADER>().read_unaligned() };
+        let Some(header) = read_current_process_value::<ACE_HEADER>(ace.cast()) else {
+            return false;
+        };
         let ace_size = usize::from(header.AceSize);
         let Some(ace_end) = ace_start.checked_add(ace_size) else {
             return false;
@@ -231,7 +235,9 @@ unsafe fn acl_has_only_user_and_system_full_access(
             return false;
         }
         // SAFETY: the ACE was range-checked and its type is ACCESS_ALLOWED_ACE.
-        let allowed = unsafe { ace.cast::<ACCESS_ALLOWED_ACE>().read_unaligned() };
+        let Some(allowed) = read_current_process_value::<ACCESS_ALLOWED_ACE>(ace.cast()) else {
+            return false;
+        };
         if allowed.Mask != FILE_ALL_ACCESS {
             return false;
         }
@@ -243,7 +249,9 @@ unsafe fn acl_has_only_user_and_system_full_access(
         // range-checked ACE above.
         let ace_sid = unsafe { ace.cast::<u8>().add(sid_offset).cast::<core::ffi::c_void>() };
         // SAFETY: the SID header lies within the already range-checked ACE.
-        let sid_header = unsafe { std::slice::from_raw_parts(ace_sid.cast::<u8>(), 8) };
+        let Some(sid_header) = read_current_process_bytes::<8>(ace_sid) else {
+            return false;
+        };
         let sub_authority_count = usize::from(sid_header[1]);
         if sid_header[0] != 1
             || sub_authority_count > 15

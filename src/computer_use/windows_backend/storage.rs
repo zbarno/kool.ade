@@ -2,6 +2,8 @@
 //! The security boundary is the Windows account SID: same-account processes
 //! share filesystem authority and are outside this storage isolation boundary.
 #![allow(dead_code)] // Consumed by the Windows WHPX lifecycle adapter integration seam.
+#[path = "storage/acl_memory.rs"]
+mod acl_memory;
 #[path = "storage/ancestor_acl.rs"]
 mod ancestor_acl;
 #[path = "storage/path.rs"]
