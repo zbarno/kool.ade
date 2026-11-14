@@ -402,4 +402,5 @@ mod support;
 use support::event;
 mod artifact_bridge;
 mod independent_workers;
+mod process_workers;
 mod recovery;
