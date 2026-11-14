@@ -81,3 +81,20 @@ fn local_vm_target_names_hypervisor_without_claiming_other_backends() {
     );
     assert!(!target.is_remote_vm_worker());
 }
+
+#[test]
+fn local_vm_target_round_trips_platform_hypervisor_identity() {
+    for hypervisor in [
+        ComputerHypervisorV1::QemuHvf,
+        ComputerHypervisorV1::QemuWhpx,
+    ] {
+        let target = ComputerTargetV1::LocalVm {
+            machine_id: "00000000-0000-4000-8000-000000000099".into(),
+            hypervisor,
+        };
+        assert_eq!(target.validate(), Ok(()));
+        let value = serde_json::to_value(&target).unwrap();
+        let decoded: ComputerTargetV1 = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded, target);
+    }
+}

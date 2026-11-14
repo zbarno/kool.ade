@@ -299,6 +299,9 @@ evidence](runtime-qa-release-evidence.md).
 | Persistent personal VM | Unavailable; #387 open | The encrypted profile foundation merged in #571, but R3 security, protected credentials, exact human login, isolation, and takeover acceptance remain outstanding. Keep the production gate disabled. |
 | Task-approved app install/launch | Experimental; #394 closed | Signed package/catalog and controller-authenticated one-use staging/launch path are implemented. Computer QA dispatch/evidence integration remains in #389; no generic installer command is exposed. |
 
+Candidate accelerators and host-specific security prerequisites for the macOS
+and Windows adapters are recorded in [Computer Use host adapter design](computer-use-host-adapters.md).
+
 Development may use rootless container GUI fixtures for deterministic
 integration tests. A container shares the host kernel and is not the guest VM
 boundary. General availability requires evidence on the real supported VM

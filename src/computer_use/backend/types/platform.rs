@@ -25,6 +25,20 @@ impl ComputerHostPlatformV1 {
             _ => Self::Unsupported,
         }
     }
+
+    /// Hypervisor family to probe for this host. This selects a candidate only;
+    /// readiness still requires the platform adapter's own verified resource,
+    /// storage, process, image, and transport controls.
+    pub fn candidate_qemu_hypervisor(self) -> Option<crate::computer_use::ComputerHypervisorV1> {
+        use crate::computer_use::ComputerHypervisorV1 as Hypervisor;
+
+        match self {
+            Self::LinuxX86_64 => Some(Hypervisor::QemuKvm),
+            Self::MacOsIntel | Self::MacOsAppleSilicon => Some(Hypervisor::QemuHvf),
+            Self::WindowsX64 => Some(Hypervisor::QemuWhpx),
+            Self::LinuxAarch64 | Self::WindowsArm64 | Self::Unsupported => None,
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -139,5 +153,29 @@ mod tests {
             super::macos_architecture_from_probe("x86_64", Err(libc::EACCES)),
             "unknown"
         );
+    }
+
+    #[test]
+    fn qemu_accelerator_candidates_are_host_specific_and_not_readiness_claims() {
+        use crate::computer_use::ComputerHypervisorV1 as Hypervisor;
+
+        assert_eq!(
+            Platform::LinuxX86_64.candidate_qemu_hypervisor(),
+            Some(Hypervisor::QemuKvm)
+        );
+        assert_eq!(
+            Platform::MacOsIntel.candidate_qemu_hypervisor(),
+            Some(Hypervisor::QemuHvf)
+        );
+        assert_eq!(
+            Platform::MacOsAppleSilicon.candidate_qemu_hypervisor(),
+            Some(Hypervisor::QemuHvf)
+        );
+        assert_eq!(
+            Platform::WindowsX64.candidate_qemu_hypervisor(),
+            Some(Hypervisor::QemuWhpx)
+        );
+        assert_eq!(Platform::WindowsArm64.candidate_qemu_hypervisor(), None);
+        assert_eq!(Platform::Unsupported.candidate_qemu_hypervisor(), None);
     }
 }
