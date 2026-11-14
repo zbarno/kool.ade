@@ -109,8 +109,11 @@ enum NativeWpxProbe {
 
 #[cfg(windows)]
 fn query_wpx_hypervisor() -> NativeWpxProbe {
-    use std::{ffi::c_void, mem::size_of, ptr::null};
-    use windows_sys::Win32::System::LibraryLoader::{FreeLibrary, GetProcAddress, LoadLibraryExW};
+    use std::{ffi::c_void, mem::size_of, ptr::null_mut};
+    use windows_sys::Win32::{
+        Foundation::FreeLibrary,
+        System::LibraryLoader::{GetProcAddress, LoadLibraryExW},
+    };
 
     const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 = 0x0000_0800;
     let dll = "WinHvPlatform.dll"
@@ -118,7 +121,7 @@ fn query_wpx_hypervisor() -> NativeWpxProbe {
         .chain(Some(0))
         .collect::<Vec<_>>();
     // SAFETY: the search flag restricts loading to the trusted System32 directory.
-    let module = unsafe { LoadLibraryExW(dll.as_ptr(), null(), LOAD_LIBRARY_SEARCH_SYSTEM32) };
+    let module = unsafe { LoadLibraryExW(dll.as_ptr(), null_mut(), LOAD_LIBRARY_SEARCH_SYSTEM32) };
     if module.is_null() {
         return NativeWpxProbe::ApiMissing;
     }

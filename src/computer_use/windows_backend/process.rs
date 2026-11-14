@@ -10,24 +10,21 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE},
     System::{
-        Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
-        },
+        Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32},
         JobObjects::{
             AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob,
-            JOB_OBJECT_CPU_RATE_CONTROL_ENABLE, JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP,
             JOB_OBJECT_LIMIT_ACTIVE_PROCESS, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-            JOB_OBJECT_LIMIT_PROCESS_MEMORY, JOBOBJECT_BASIC_LIMIT_INFORMATION,
-            JOBOBJECT_CPU_RATE_CONTROL_INFORMATION, JOBOBJECT_CPU_RATE_CONTROL_INFORMATION_0,
-            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectCpuRateControlInformation,
-            JobObjectExtendedLimitInformation, SetInformationJobObject, TerminateJobObject,
+            JOB_OBJECT_LIMIT_PROCESS_MEMORY, JOBOBJECT_CPU_RATE_CONTROL_INFORMATION,
+            JOBOBJECT_CPU_RATE_CONTROL_INFORMATION_0, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            JobObjectCpuRateControlInformation, JobObjectExtendedLimitInformation,
+            SetInformationJobObject, TerminateJobObject,
         },
         Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME, WaitForSingleObject},
     },
 };
 
+use self::identity::verify_current_user_owner;
 use super::WindowsVmJobLimits;
-use super::identity::verify_current_user_owner;
 
 mod identity;
 
