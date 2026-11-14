@@ -9,6 +9,7 @@ use std::{
 const PROCESS_FIXTURE_ENV: &str = "KOOLADE_TEST_REMOTE_WORKER_PROCESS_FIXTURE";
 const PROCESS_FIXTURE_CONFIG: &str = "KOOLADE_TEST_REMOTE_WORKER_CONFIG";
 const PROCESS_FIXTURE_SOCKET: &str = "KOOLADE_TEST_REMOTE_WORKER_SOCKET";
+const PROCESS_FIXTURE_EXPECT_REJECTION: &str = "KOOLADE_TEST_REMOTE_WORKER_EXPECT_REJECTION";
 
 struct WorkerProcess(Child);
 
@@ -31,6 +32,7 @@ fn spawn_worker_process(
     config: &ComputerRemoteWorkerHostConfigV1,
     root: &std::path::Path,
     name: &str,
+    expect_rejection: bool,
 ) -> (ComputerRemoteWorkerClientV1, WorkerProcess) {
     let config_path = root.join(format!("{name}.json"));
     let socket_path = root.join(format!("{name}.sock"));
@@ -41,6 +43,10 @@ fn spawn_worker_process(
         .env(PROCESS_FIXTURE_ENV, "1")
         .env(PROCESS_FIXTURE_CONFIG, &config_path)
         .env(PROCESS_FIXTURE_SOCKET, &socket_path)
+        .env(
+            PROCESS_FIXTURE_EXPECT_REJECTION,
+            if expect_rejection { "1" } else { "0" },
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -82,7 +88,7 @@ fn worker_fixture_process_entrypoint() {
         serde_json::from_slice(&std::fs::read(config_path).unwrap()).unwrap();
     let listener = UnixListener::bind(socket_path).unwrap();
     let (stream, _) = listener.accept().unwrap();
-    serve_computer_remote_worker_stdio_v1(
+    let result = serve_computer_remote_worker_stdio_v1(
         stream.try_clone().unwrap(),
         stream,
         SharedCheckpoint::default(),
@@ -91,8 +97,12 @@ fn worker_fixture_process_entrypoint() {
             guest: Arc::new(Mutex::new(FakeGuest::default())),
         },
         &config,
-    )
-    .unwrap();
+    );
+    if std::env::var(PROCESS_FIXTURE_EXPECT_REJECTION).as_deref() == Ok("1") {
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidData);
+    } else {
+        result.unwrap();
+    }
 }
 
 /// Two worker endpoints run in separate OS processes with distinct private
@@ -122,9 +132,9 @@ fn process_isolated_worker_fixtures_keep_sessions_and_identities_separate() {
     let west_session = session_for_worker(&key, &west_config, 14);
     let root = tempfile::tempdir().unwrap();
     let (mut east_client, mut east_process) =
-        spawn_worker_process(&east_config, root.path(), "east");
+        spawn_worker_process(&east_config, root.path(), "east", false);
     let (mut west_client, mut west_process) =
-        spawn_worker_process(&west_config, root.path(), "west");
+        spawn_worker_process(&west_config, root.path(), "west", true);
 
     for (client, config, session) in [
         (&mut east_client, &east_config, &east_session),
@@ -146,6 +156,17 @@ fn process_isolated_worker_fixtures_keep_sessions_and_identities_separate() {
             ResultValue::Prepared { .. }
         ));
     }
+
+    let crossed_session = worker_request(
+        &east_session,
+        &west_config.worker_id,
+        &west_config.ssh_host_key_fingerprint,
+        2,
+        Body::Start {
+            session: east_session.clone(),
+        },
+    );
+    assert!(west_client.request(&crossed_session).is_err());
 
     drop(east_client);
     drop(west_client);
