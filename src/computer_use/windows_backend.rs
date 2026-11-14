@@ -166,6 +166,9 @@ pub(crate) struct WindowsVmJobLimits {
 }
 
 impl WindowsVmJobLimits {
+    // The native backend integration consumes this constructor; until that
+    // integration lands, only the containment tests construct limits.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn new(
         process_memory_bytes: u64,
         cpu_rate_hundredths_percent: u32,

@@ -249,13 +249,11 @@ fn resume_primary_thread(pid: u32) -> io::Result<()> {
     let mut found = unsafe { Thread32First(snapshot, &mut entry) };
     let mut primary = None;
     while found != 0 {
-        if entry.th32OwnerProcessID == pid {
-            if primary.replace(entry.th32ThreadID).is_some() {
-                unsafe { CloseHandle(snapshot) };
-                return Err(io::Error::other(
-                    "suspended QEMU process has multiple threads before containment",
-                ));
-            }
+        if entry.th32OwnerProcessID == pid && primary.replace(entry.th32ThreadID).is_some() {
+            unsafe { CloseHandle(snapshot) };
+            return Err(io::Error::other(
+                "suspended QEMU process has multiple threads before containment",
+            ));
         }
         found = unsafe { Thread32Next(snapshot, &mut entry) };
     }
