@@ -115,6 +115,80 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  guest-companions-aarch64:
+    name: Build AArch64 guest companions for Debian Bookworm
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain and fetch locked dependencies
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          cargo +1.98.1 fetch --locked
+          mkdir -p "$HOME/.cargo/registry" "$HOME/.cargo/git"
+      - name: Build companions against the guest's glibc baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/computer-use-guest-target" "$RUNNER_TEMP/computer-use-companions"
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --volume /etc/ssl/certs:/runner-certs:ro \
+            --volume "$HOME/.cargo/registry:/cargo/registry:ro" \
+            --volume "$HOME/.cargo/git:/cargo/git:ro" \
+            --volume "$HOME/.rustup/toolchains/1.98.1-aarch64-unknown-linux-gnu:/rust:ro" \
+            --volume "$RUNNER_TEMP/computer-use-guest-target:/target" \
+            --volume "$RUNNER_TEMP/computer-use-companions:/out" \
+            --workdir /workspace \
+            debian:bookworm@sha256:d74df7598108a173a621eda4d58a2adbf850b2d9a9d81bc2cca1a6c21174a880 \
+            bash -euc '
+              printf "%s\\n" \
+                "deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20261101T000000Z bookworm main" \
+                "deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20261101T000000Z bookworm-security main" \
+                > /tmp/bookworm-snapshot.list
+              apt_options=(
+                -o Acquire::Check-Valid-Until=false
+                -o Acquire::Retries=5
+                -o Acquire::https::CaInfo=/runner-certs/ca-certificates.crt
+                -o Dir::Etc::sourcelist=/tmp/bookworm-snapshot.list
+                -o Dir::Etc::sourceparts=-
+              )
+              apt-get "${apt_options[@]}" update
+              apt-get "${apt_options[@]}" install --yes --no-install-recommends \
+                ca-certificates build-essential cmake pkg-config libasound2-dev libfontconfig1-dev \
+                libfreetype6-dev libgl1-mesa-dev libwayland-dev libx11-dev \
+                libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libxrandr-dev
+              mkdir -p /tmp/cargo-home
+              ln -s /cargo/registry /tmp/cargo-home/registry
+              ln -s /cargo/git /tmp/cargo-home/git
+              export CARGO_HOME=/tmp/cargo-home CARGO_TARGET_DIR=/target
+              export RUSTC=/rust/bin/rustc PATH=/rust/bin:$PATH
+              cargo build --locked --offline --release \
+                --bin koolade-computer-use-agent --bin koolade_computer_use_app_helper
+              for binary in \
+                /target/release/koolade-computer-use-agent \
+                /target/release/koolade_computer_use_app_helper; do
+                if ! ldd -r "$binary" > /tmp/ldd-output 2>&1; then
+                  cat /tmp/ldd-output >&2
+                  exit 1
+                fi
+                if grep -E "not found|GLIBC_[0-9.]+.*not found" /tmp/ldd-output; then
+                  exit 1
+                fi
+              done
+              install -m 0755 /target/release/koolade-computer-use-agent /out/
+              install -m 0755 /target/release/koolade_computer_use_app_helper \
+                /out/koolade-computer-use-app-helper
+            '
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: computer-use-guest-companions-aarch64-${{ github.sha }}
+          path: ${{ runner.temp }}/computer-use-companions/
+          if-no-files-found: error
+          retention-days: 14
+
   candidate:
     needs: guest-companions
     runs-on: ubuntu-24.04
@@ -136,6 +210,11 @@ jobs:
             libx11-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libxrandr-dev
       - name: Verify real qcow2 copy-on-write isolation
         run: bash containers/computer-use/test-overlay-isolation.sh
+      - name: Verify guest architecture SBOM metadata
+        run: |
+          python3 -m unittest \
+            scripts.tests.test_computer_use_guest_image_sbom \
+            scripts.tests.test_computer_use_fat32_normalizer -v
       - name: Build twice and verify reproducibility
         shell: bash
         run: |
@@ -234,6 +313,85 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  candidate-aarch64:
+    needs: guest-companions-aarch64
+    name: Reproducible AArch64 UEFI guest image candidate
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: computer-use-guest-companions-aarch64-${{ github.sha }}
+          path: ${{ runner.temp }}/computer-use-companions
+      - name: Install AArch64 image builder tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes debootstrap debian-archive-keyring qemu-utils \
+            grub-efi-arm64-bin grub2-common dosfstools parted e2fsprogs dpkg-dev libasound2-dev \
+            libfontconfig1-dev libfreetype6-dev libgl1-mesa-dev libwayland-dev \
+            libx11-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libxrandr-dev
+      - name: Verify real qcow2 copy-on-write isolation
+        run: bash containers/computer-use/test-overlay-isolation.sh
+      - name: Verify guest architecture SBOM metadata
+        run: |
+          python3 -m unittest \
+            scripts.tests.test_computer_use_guest_image_sbom \
+            scripts.tests.test_computer_use_fat32_normalizer -v
+      - name: Build twice and verify AArch64 reproducibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          first="$RUNNER_TEMP/computer-use-aarch64-first"
+          second="$RUNNER_TEMP/computer-use-aarch64-second"
+          agent="$RUNNER_TEMP/computer-use-companions/koolade-computer-use-agent"
+          app_helper="$RUNNER_TEMP/computer-use-companions/koolade-computer-use-app-helper"
+          chmod 0755 "$agent" "$app_helper"
+          containers/computer-use/build-image.sh "$first" "$agent" "$app_helper" "" aarch64
+          containers/computer-use/build-image.sh "$second" "$agent" "$app_helper" "" aarch64
+          image="koolade-computer-use-guest-aarch64.qcow2"
+          digest_image() {
+            local directory="$1"
+            local actual declared
+            actual="$(sha256sum "$directory/$image" | cut -d ' ' -f 1)"
+            declared="$(cut -d ' ' -f 1 "$directory/koolade-computer-use-guest-aarch64.sha256")"
+            if [[ ! "$declared" =~ ^[[:xdigit:]]{64}$ || "$actual" != "$declared" ]]; then
+              echo "AArch64 candidate digest sidecar mismatch in $directory" >&2
+              exit 1
+            fi
+            printf '%s\n' "$actual"
+          }
+          first_digest="$(digest_image "$first")"
+          second_digest="$(digest_image "$second")"
+          if [[ "$first_digest" != "$second_digest" ]]; then
+            qemu-img compare -f qcow2 "$first/$image" "$second/$image" || \
+              { echo "AArch64 candidate disk contents differ" >&2; exit 1; }
+            echo "AArch64 qcow2 container encoding differs despite matching virtual disks" >&2
+            exit 1
+          fi
+          for suffix in \
+            packages.tsv app-packages.tsv sbom.cdx.json sbom.sha256 agent.sha256 app-helper.sha256 \
+            qemu-info.json recipe-components.sha256 recipe.sha256 builder-versions.txt \
+            source-revision promotion-status.txt; do
+            file="koolade-computer-use-guest-aarch64.$suffix"
+            cmp -s "$first/$file" "$second/$file" || {
+              echo "AArch64 candidate sidecar differs: $suffix" >&2
+              exit 1
+            }
+          done
+          mkdir -p "$RUNNER_TEMP/computer-use-aarch64-image"
+          cp -a "$first/." "$RUNNER_TEMP/computer-use-aarch64-image/"
+          cp "$agent" "$RUNNER_TEMP/computer-use-aarch64-image/koolade-computer-use-agent"
+          cp "$app_helper" "$RUNNER_TEMP/computer-use-aarch64-image/koolade-computer-use-app-helper"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: computer-use-guest-candidate-aarch64-${{ github.sha }}
+          path: ${{ runner.temp }}/computer-use-aarch64-image/
+          if-no-files-found: error
+          retention-days: 14
+
   attest-main-candidate:
     needs: candidate
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
@@ -259,6 +417,42 @@ jobs:
         with:
           subject-name: koolade-computer-use-guest-x86_64.qcow2
           subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: false
+          github-token: ${{ github.token }}
+
+  attest-main-aarch64-candidate:
+    needs: candidate-aarch64
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: computer-use-guest-candidate-aarch64-${{ github.sha }}
+          path: ${{ runner.temp }}/computer-use-aarch64-image
+      - id: image
+        name: Read AArch64 candidate subject digest
+        env:
+          IMAGE_RECORD: ${{ runner.temp }}/computer-use-aarch64-image/koolade-computer-use-guest-aarch64.sha256
+        run: echo "digest=sha256:$(cut -d ' ' -f 1 "$IMAGE_RECORD")" >> "$GITHUB_OUTPUT"
+      - name: Attest AArch64 candidate image provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: koolade-computer-use-guest-aarch64.qcow2
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: false
+          github-token: ${{ github.token }}
+      - name: Attest AArch64 candidate package inventory
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: koolade-computer-use-guest-aarch64.qcow2
+          subject-digest: ${{ steps.image.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/computer-use-aarch64-image/koolade-computer-use-guest-aarch64.sbom.cdx.json
           push-to-registry: false
           github-token: ${{ github.token }}
       - name: Attest candidate package inventory

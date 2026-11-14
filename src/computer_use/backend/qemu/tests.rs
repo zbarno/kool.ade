@@ -2,10 +2,10 @@ use std::path::Path;
 
 use super::commands::command_args;
 use crate::computer_use::{
-    ComputerBackendErrorV1, ComputerCapabilityV1, ComputerControllerProofV1, ComputerIdentityV1,
-    ComputerLeaseV1, ComputerLifecycleV1, ComputerNetworkProfileV1, ComputerOperationV1,
-    ComputerPolicyV1, ComputerResourceBudgetV1, ComputerSessionClassV1, ComputerSessionV1,
-    ComputerTargetV1,
+    ComputerBackendErrorV1, ComputerCapabilityV1, ComputerControllerProofV1, ComputerHypervisorV1,
+    ComputerIdentityV1, ComputerLeaseV1, ComputerLifecycleV1, ComputerNetworkProfileV1,
+    ComputerOperationV1, ComputerPolicyV1, ComputerResourceBudgetV1, ComputerSessionClassV1,
+    ComputerSessionV1, ComputerTargetV1,
 };
 
 #[path = "tests/r1_real_kvm.rs"]
@@ -70,6 +70,24 @@ fn session() -> ComputerSessionV1 {
             signer_key_id: "00000000-0000-4000-8000-000000000008".into(),
             signature_hex: "0".repeat(128),
         },
+    }
+}
+
+#[test]
+fn linux_kvm_backend_rejects_non_kvm_local_hypervisor_targets() {
+    for hypervisor in [
+        ComputerHypervisorV1::QemuHvf,
+        ComputerHypervisorV1::QemuWhpx,
+    ] {
+        let mut session = session();
+        session.target = ComputerTargetV1::LocalVm {
+            machine_id: "00000000-0000-4000-8000-000000000005".into(),
+            hypervisor,
+        };
+        assert_eq!(
+            super::policy::target_machine_id(&session, None),
+            Err(ComputerBackendErrorV1::UnsupportedTarget)
+        );
     }
 }
 

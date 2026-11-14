@@ -7,7 +7,13 @@ import uuid
 from urllib.parse import quote
 from pathlib import Path
 
+if len(sys.argv) not in (3, 4):
+    raise SystemExit("usage: make-sbom.py PACKAGE_LIST OUTPUT [DEBIAN_ARCH]")
+
 source, destination = map(Path, sys.argv[1:3])
+architecture = sys.argv[3] if len(sys.argv) == 4 else "amd64"
+if architecture not in {"amd64", "arm64"}:
+    raise SystemExit("unsupported Debian package architecture")
 records = []
 for line in source.read_text(encoding="utf-8").splitlines():
     name, version = line.split("\t", 1)
@@ -16,7 +22,7 @@ for line in source.read_text(encoding="utf-8").splitlines():
             "type": "library",
             "name": name,
             "version": version,
-            "purl": f"pkg:deb/debian/{quote(name, safe='.-_')}@{quote(version, safe='.-_~')}?arch=amd64",
+            "purl": f"pkg:deb/debian/{quote(name, safe='.-_')}@{quote(version, safe='.-_~')}?arch={architecture}",
         }
     )
 records.sort(key=lambda record: (record["name"], record["version"]))

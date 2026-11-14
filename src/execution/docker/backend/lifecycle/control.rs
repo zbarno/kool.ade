@@ -97,6 +97,12 @@ pub(super) async fn collect(
     backend: &DockerExecutionBackend,
     handle: &ExecutionHandleV1,
 ) -> Result<ExecutionResultV1, ExecutionError> {
+    // A previous worker process may have been killed after marking an
+    // execution interrupted but before confirming container cleanup. A fresh
+    // worker handling CollectArtifacts must reconcile that durable record
+    // before reporting confirmed worker loss to the controller; otherwise the
+    // controller cannot safely fence and retry on another trusted worker.
+    super::recovery::reconcile(backend).await?;
     let record = load_record(backend, handle)?;
     if record.result.as_ref().is_some_and(is_worker_loss_result)
         && !worker_loss_is_reconciled(record.state, record.cleanup)

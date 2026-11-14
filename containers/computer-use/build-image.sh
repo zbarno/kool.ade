@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# shellcheck disable=SC2154 # The trap assigns status before printing it.
 trap 'status=$?; printf "build-image.sh failed at line %s: %s (status %s)\\n" "$LINENO" "$BASH_COMMAND" "$status" >&2' ERR
 
 # App-owned candidate builder. Inputs are this recipe and Debian snapshot packages;
@@ -7,8 +8,27 @@ trap 'status=$?; printf "build-image.sh failed at line %s: %s (status %s)\\n" "$
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 output_dir="${1:?usage: build-image.sh OUTPUT_DIR}"
 agent_binary="${2:?usage: build-image.sh OUTPUT_DIR AGENT_BINARY}"
-app_helper_binary="${3:?usage: build-image.sh OUTPUT_DIR AGENT_BINARY APP_HELPER_BINARY [APP_PACKAGE_DIR]}"
+app_helper_binary="${3:?usage: build-image.sh OUTPUT_DIR AGENT_BINARY APP_HELPER_BINARY [APP_PACKAGE_DIR] [x86_64|aarch64]}"
 app_package_dir="${4:-}"
+guest_architecture="${5:-x86_64}"
+case "$guest_architecture" in
+  x86_64)
+    debian_architecture="amd64"
+    base_name="koolade-computer-use-guest-x86_64"
+    kernel_package="linux-image-amd64"
+    grub_packages=(grub-pc-bin grub2-common)
+    ;;
+  aarch64)
+    debian_architecture="arm64"
+    base_name="koolade-computer-use-guest-aarch64"
+    kernel_package="linux-image-arm64"
+    grub_packages=(grub-efi-arm64-bin grub2-common)
+    ;;
+  *)
+    echo "unsupported guest architecture: $guest_architecture" >&2
+    exit 2
+    ;;
+esac
 [[ -f "$agent_binary" && -x "$agent_binary" && ! -L "$agent_binary" \
   && -f "$app_helper_binary" && -x "$app_helper_binary" && ! -L "$app_helper_binary" ]] || {
   echo "companion binary must be a regular executable file" >&2
@@ -17,6 +37,10 @@ app_package_dir="${4:-}"
 for tool in debootstrap qemu-img mkfs.ext4 debugfs mount umount mountpoint realpath grub-install chroot sha256sum parted sfdisk losetup sudo curl grep find sort touch stat dpkg-deb; do
   command -v "$tool" >/dev/null || { echo "missing required builder: $tool" >&2; exit 2; }
 done
+if [[ "$guest_architecture" == aarch64 ]] && ! command -v mkfs.vfat >/dev/null; then
+  echo "missing required builder: mkfs.vfat" >&2
+  exit 2
+fi
 package_dir_real=""
 if [[ -n "$app_package_dir" ]]; then
   [[ -d "$app_package_dir" && ! -L "$app_package_dir" ]] || {
@@ -32,7 +56,6 @@ work_dir="$(mktemp -d "$work_parent/computer-use-image.XXXXXX")"
 snapshot="20261101T000000Z"
 source_date_epoch="1793491200"
 export SOURCE_DATE_EPOCH="$source_date_epoch" TZ=UTC LC_ALL=C
-base_name="koolade-computer-use-guest-x86_64"
 image_size="4G"
 
 work_dir_is_safe() {
@@ -47,15 +70,25 @@ cleanup() {
   local original_status=$?
   local cleanup_failed=0
   trap - EXIT
+  if mountpoint -q "$work_dir/efi"; then
+    sudo umount "$work_dir/efi" || cleanup_failed=1
+  fi
   if mountpoint -q "$work_dir/mnt"; then
     sudo umount "$work_dir/mnt" || cleanup_failed=1
   fi
   if [[ -n "$loopdev" ]]; then
     sudo losetup -d "$loopdev" || cleanup_failed=1
   fi
-  if mountpoint -q "$work_dir/mnt"; then
-    echo "refusing to remove image work directory while mount remains" >&2
+  if mountpoint -q "$work_dir/efi"; then
+    echo "refusing to remove image work directory while EFI mount remains" >&2
     cleanup_failed=1
+  fi
+  if mountpoint -q "$work_dir/mnt"; then
+    echo "refusing to remove image work directory while root filesystem mount remains" >&2
+    cleanup_failed=1
+  fi
+  if (( cleanup_failed != 0 )); then
+    echo "refusing to remove image work directory after cleanup failure" >&2
   elif work_dir_is_safe; then
     sudo rm -rf --one-file-system -- "$work_dir" || cleanup_failed=1
   else
@@ -68,6 +101,9 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$output_dir" "$work_dir/rootfs" "$work_dir/debootstrap-cache" "$work_dir/mnt"
+if [[ "$guest_architecture" == aarch64 ]]; then
+  mkdir -p "$work_dir/efi"
+fi
 mkdir -p "$work_dir/download-tools"
 ln -s "$root_dir/containers/computer-use/debootstrap-wget" "$work_dir/download-tools/wget"
 
@@ -79,7 +115,7 @@ while true; do
   if sudo env PATH="$work_dir/download-tools:$PATH" debootstrap --verbose \
     --force-check-gpg --keyring=/usr/share/keyrings/debian-archive-keyring.gpg \
     --cache-dir="$work_dir/debootstrap-cache" \
-    --arch=amd64 --variant=minbase bookworm "$work_dir/rootfs" \
+    --arch="$debian_architecture" --variant=minbase bookworm "$work_dir/rootfs" \
     "https://snapshot.debian.org/archive/debian/${snapshot}/"; then
     break
   else
@@ -111,7 +147,7 @@ apt_get() {
 apt_get update
 apt_get full-upgrade -y
 apt_get install -y --no-install-recommends \
-  systemd-sysv linux-image-amd64 grub-pc-bin grub2-common \
+  systemd-sysv "$kernel_package" "${grub_packages[@]}" \
   xorg openbox lightdm chromium dbus-x11 fonts-liberation \
   ca-certificates sudo locales
 chroot_guest apt-get clean
@@ -151,8 +187,10 @@ if [[ -n "$package_dir_real" ]]; then
     }
     package_name="$(dpkg-deb --field "$package" Package)"
     package_version="$(dpkg-deb --field "$package" Version)"
+    package_architecture="$(dpkg-deb --field "$package" Architecture)"
     [[ "$package_name" =~ ^[a-z0-9][a-z0-9+.-]{0,127}$ \
-      && "$package_version" =~ ^[A-Za-z0-9.+:~_-]{1,128}$ ]] || {
+      && "$package_version" =~ ^[A-Za-z0-9.+:~_-]{1,128}$ \
+      && ( "$package_architecture" == all || "$package_architecture" == "$debian_architecture" ) ]] || {
       echo "app package metadata is malformed: $filename" >&2
       exit 1
     }
@@ -348,25 +386,59 @@ sudo tee "$work_dir/rootfs/etc/hostname" >/dev/null <<'HOST'
 koolade-computer-use-guest
 HOST
 chroot_guest update-initramfs -u -k all
+# shellcheck disable=SC2016 # dpkg-query formats these placeholders inside the chroot.
 chroot_guest dpkg-query -W -f='${Package}\t${Version}\n' | sort \
   > "$output_dir/${base_name}.packages.tsv"
 python3 "$root_dir/containers/computer-use/make-sbom.py" \
-  "$output_dir/${base_name}.packages.tsv" "$output_dir/${base_name}.sbom.cdx.json"
+  "$output_dir/${base_name}.packages.tsv" "$output_dir/${base_name}.sbom.cdx.json" \
+  "$debian_architecture"
 
 image="$work_dir/${base_name}.raw"
 sudo truncate -s "$image_size" "$image"
-sudo parted -s "$image" mklabel msdos mkpart primary ext4 1MiB 100% set 1 boot on
-sudo sfdisk --disk-id "$image" 0x4b4f4f4c
+if [[ "$guest_architecture" == x86_64 ]]; then
+  sudo parted -s "$image" mklabel msdos mkpart primary ext4 1MiB 100% set 1 boot on
+  sudo sfdisk --disk-id "$image" 0x4b4f4f4c
+else
+  sudo parted -s "$image" mklabel gpt
+  sudo parted -s "$image" mkpart ESP fat32 1MiB 513MiB
+  sudo parted -s "$image" set 1 esp on
+  sudo parted -s "$image" mkpart primary ext4 513MiB 100%
+  sudo sfdisk --disk-id "$image" 4B4F4F4C-0000-4000-8000-000000000395
+  sudo sfdisk --part-uuid "$image" 1 4B4F4F4C-0000-4000-8000-000000000396
+  sudo sfdisk --part-uuid "$image" 2 4B4F4F4C-0000-4000-8000-000000000397
+fi
 loopdev="$(sudo losetup --find --show --partscan "$image")"
-partition="${loopdev}p1"
-for _ in $(seq 1 20); do [[ -b "$partition" ]] && break; sleep 0.25; done
+if [[ "$guest_architecture" == x86_64 ]]; then
+  partition="${loopdev}p1"
+else
+  efi_partition="${loopdev}p1"
+  partition="${loopdev}p2"
+fi
+for _ in $(seq 1 20); do
+  if [[ -b "$partition" ]] && { [[ "$guest_architecture" == x86_64 ]] || [[ -b "$efi_partition" ]]; }; then
+    break
+  fi
+  sleep 0.25
+done
 [[ -b "$partition" ]] || { echo "partition device unavailable" >&2; exit 1; }
+if [[ "$guest_architecture" == aarch64 ]]; then
+  [[ -b "$efi_partition" ]] || { echo "EFI partition device unavailable" >&2; exit 1; }
+  sudo env SOURCE_DATE_EPOCH="$source_date_epoch" \
+    mkfs.vfat --invariant -F 32 -i 4B4F4F4C -n EFI "$efi_partition"
+fi
 sudo env E2FSPROGS_FAKE_TIME="$source_date_epoch" mkfs.ext4 -F \
   -E lazy_itable_init=0,lazy_journal_init=0,hash_seed=00000000-0000-4000-8000-000000000379 \
   -U 00000000-0000-4000-8000-000000000379 -L rootfs "$partition"
 sudo mount "$partition" "$work_dir/mnt"
 sudo cp -a "$work_dir/rootfs/." "$work_dir/mnt/"
-sudo grub-install --target=i386-pc --boot-directory="$work_dir/mnt/boot" "$loopdev"
+if [[ "$guest_architecture" == x86_64 ]]; then
+  sudo grub-install --target=i386-pc --boot-directory="$work_dir/mnt/boot" "$loopdev"
+else
+  sudo mount "$efi_partition" "$work_dir/efi"
+  sudo grub-install --target=arm64-efi \
+    --efi-directory="$work_dir/efi" --boot-directory="$work_dir/mnt/boot" \
+    --removable --no-nvram --recheck
+fi
 sudo mkdir -p "$work_dir/mnt/boot/grub"
 sudo tee "$work_dir/mnt/boot/grub/grub.cfg" >/dev/null <<'GRUB'
 set timeout=0
@@ -384,6 +456,14 @@ fi
 if sudo grep -R -aF -e "$work_dir" -e "$loopdev" "$work_dir/rootfs/boot/grub"; then
   echo "refusing to package builder paths in the guest GRUB files" >&2
   exit 1
+fi
+if [[ "$guest_architecture" == aarch64 ]]; then
+  if sudo grep -R -aF -e "$work_dir" -e "$loopdev" "$work_dir/efi"; then
+    echo "refusing to package builder paths in the EFI system partition" >&2
+    exit 1
+  fi
+  sudo umount "$work_dir/efi"
+  sudo python3 "$root_dir/containers/computer-use/normalize-fat32.py" "$efi_partition"
 fi
 sudo find "$work_dir/rootfs/var/log" -xdev -type f -delete
 sudo find "$work_dir/rootfs" -xdev -exec touch -h -d "@$source_date_epoch" {} +
@@ -416,7 +496,8 @@ normalization_commands="$work_dir/normalize-filesystem.debugfs"
 sudo umount "$work_dir/mnt"
 normalization_log="$work_dir/normalize-filesystem.debugfs.log"
 sudo env E2FSPROGS_FAKE_TIME="$source_date_epoch" \
-  debugfs -w -f "$normalization_commands" "$partition" >"$normalization_log" 2>&1
+  debugfs -w -f "$normalization_commands" "$partition" \
+  | tee "$normalization_log" >/dev/null
 if grep -Eiq 'error|failed|unable|not found|invalid|cannot|warning' "$normalization_log"; then
   echo "filesystem metadata normalization reported an error" >&2
   exit 1
@@ -451,6 +532,7 @@ printf '%s  %s\n' "$helper_digest" "${base_name}.app-helper" \
 (cd "$root_dir" && sha256sum \
   containers/computer-use/build-image.sh \
   containers/computer-use/test-overlay-isolation.sh \
+  containers/computer-use/normalize-fat32.py \
   containers/computer-use/make-sbom.py \
   containers/computer-use/debootstrap-wget \
   src/bin/koolade_computer_use_app_helper.rs \
@@ -467,14 +549,24 @@ printf '%s  %s\n' "$app_packages_digest" "${base_name}.app-packages.tsv" \
   >> "$output_dir/${base_name}.recipe-components.sha256"
 recipe_digest="$(sha256sum "$output_dir/${base_name}.recipe-components.sha256" | cut -d ' ' -f 1)"
 printf 'sha256:%s\n' "$recipe_digest" > "$output_dir/${base_name}.recipe.sha256"
-printf 'debootstrap: %s\nqemu-img: %s\ngrub-install: %s\ndebugfs: %s\n' \
-  "$(debootstrap --version 2>&1 | head -1)" \
-  "$(qemu-img --version | head -1)" \
-  "$(grub-install --version | head -1)" \
-  "$(debugfs -V 2>&1 | head -1)" \
-  > "$output_dir/${base_name}.builder-versions.txt"
-sha256sum "$output_dir/${base_name}.sbom.cdx.json" \
-  > "$output_dir/${base_name}.sbom.sha256"
+if [[ "$guest_architecture" == aarch64 ]]; then
+  printf 'debootstrap: %s\nqemu-img: %s\ngrub-install: %s\ndebugfs: %s\nmkfs.vfat: %s\n' \
+    "$(debootstrap --version 2>&1 | head -1)" \
+    "$(qemu-img --version | head -1)" \
+    "$(grub-install --version | head -1)" \
+    "$(debugfs -V 2>&1 | head -1)" \
+    "$(mkfs.vfat --version 2>&1 | head -1)" \
+    > "$output_dir/${base_name}.builder-versions.txt"
+else
+  printf 'debootstrap: %s\nqemu-img: %s\ngrub-install: %s\ndebugfs: %s\n' \
+    "$(debootstrap --version 2>&1 | head -1)" \
+    "$(qemu-img --version | head -1)" \
+    "$(grub-install --version | head -1)" \
+    "$(debugfs -V 2>&1 | head -1)" \
+    > "$output_dir/${base_name}.builder-versions.txt"
+fi
+(cd "$output_dir" && sha256sum \
+  "${base_name}.sbom.cdx.json" > "${base_name}.sbom.sha256")
 source_revision="${GITHUB_SHA:-$(git -C "$root_dir" rev-parse HEAD)}"
 printf '%s\n' "$source_revision" > "$output_dir/${base_name}.source-revision"
 printf 'candidate image only; no signed promotion or real-KVM readiness\n' \
