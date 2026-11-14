@@ -21,10 +21,14 @@ pub(crate) struct WindowsWpxReadiness {
     pub(crate) release_enabled: bool,
 }
 
+#[cfg(any(target_os = "windows", test))]
+mod launch_plan;
 #[cfg(target_os = "windows")]
 mod storage;
 #[cfg(any(target_os = "windows", test))]
 mod storage_policy;
+#[cfg(any(target_os = "windows", test))]
+mod transport;
 
 impl WindowsWpxReadiness {
     pub(crate) fn diagnostic(self) -> &'static str {
