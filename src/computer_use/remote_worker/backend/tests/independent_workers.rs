@@ -1,6 +1,6 @@
 use super::*;
 
-fn worker_config(
+pub(super) fn worker_config(
     key: &SigningKey,
     worker_id: &str,
     machine_id: &str,
@@ -17,7 +17,7 @@ fn worker_config(
     config
 }
 
-fn session_for_worker(
+pub(super) fn session_for_worker(
     key: &SigningKey,
     config: &ComputerRemoteWorkerHostConfigV1,
     attestation_seed: u8,
@@ -76,7 +76,7 @@ fn start_worker_fixture(
     )
 }
 
-fn worker_request(
+pub(super) fn worker_request(
     session: &ComputerSessionV1,
     worker_id: &str,
     host_key: &str,
