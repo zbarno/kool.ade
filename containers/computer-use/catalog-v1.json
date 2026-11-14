@@ -1,25 +1,25 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "computer-use-images-v1-18-5ed93157b2ec",
-  "catalogGeneration": 18,
-  "issuedAtUnixMs": 1794623470188,
-  "expiresAtUnixMs": 1802399470188,
+  "catalogVersion": "computer-use-images-v1-19-53ca225f40a0",
+  "catalogGeneration": 19,
+  "issuedAtUnixMs": 1794632261494,
+  "expiresAtUnixMs": 1802408261494,
   "signerKeyId": "76fe57c9-0102-424b-9bb2-90b7ca745006",
   "images": [
     {
       "architecture": "x86_64",
-      "image_digest": "sha256:4cd14bd79caaf01566523d190e7205b68f0e0f3aaa4f959a020fc625eaea514d",
+      "image_digest": "sha256:53ca225f40a0229085cf8da26b8e205b94052679fc39e0903a6999e6dee706ec",
       "image_size_bytes": 4294967296,
       "artifact_size_bytes": 682426368,
       "artifact_name": "koolade-computer-use-guest-x86_64.qcow2",
-      "guest_release": "debian-bookworm-2a567a93f216",
-      "source_revision": "2a567a93f216a4f6d42fff0dd13f522d008858cd",
-      "build_recipe_sha256": "sha256:af6e9a537ebfd68785f6b02d03770fe26247aeb6b1bbc94b173f6aed7e6421ff",
+      "guest_release": "debian-bookworm-06baa2475c72",
+      "source_revision": "06baa2475c72d06270a08758326a9af7c17bd856",
+      "build_recipe_sha256": "sha256:aef7e12ca79b1b8e30f87c0506e073868bdeb26654292e4ccf9f6cd0ebc26ee2",
       "sbom_sha256": "sha256:c24b767f1f4e7635a31372c2f341a44870843770cea2b6d3bdabb3e5a3681544",
-      "build_attestation_sha256": "sha256:c70d0e3e02f7a65ca25436956011206930a9d8170a1925e5df7930f446f86fc8",
+      "build_attestation_sha256": "sha256:8a9ce1ee29769598541bcebbc9c18879c690fdb8c772813133de14e980cc0b99",
       "companion_protocol_version": 1,
-      "companion_sha256": "sha256:c60e3e4e5db0fb53299507883a9df8d7f281dd5320bf95917acdfe889c7b323f",
-      "status": "revoked"
+      "companion_sha256": "sha256:0f71003e35be1007e2b236a3cb728ef87946bbcd1be10963e13cece15ee272fa",
+      "status": "approved"
     },
     {
       "architecture": "x86_64",
@@ -34,8 +34,8 @@
       "build_attestation_sha256": "sha256:370f9d1e9ed2335e8def1eebcb297232b80fb1cf83ba39f7729a988be6024f80",
       "companion_protocol_version": 1,
       "companion_sha256": "sha256:394e7c883b117a7a96b6cbaaee2e3c8f679f87626e65b7a4509b32cdee2efb52",
-      "status": "approved"
+      "status": "revoked"
     }
   ],
-  "signatureHex": "76801ad17671918a6a0e0777b76a7fbd82d284ba8b23e2bcd9118a316a0cd754fc8c1aa6bfc7aadc369d77418acc9f55d75cfce2d7a149ff868bf3ec81c8d503"
+  "signatureHex": "44868f002cde69188a738f94d40124310cb65cd85cc1413357467861c3969aad8efed05c82a4bb41585a9619de99d93394c69f72ddc3f291c9a4e49f99818e0f"
 }
