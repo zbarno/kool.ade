@@ -26,11 +26,28 @@ use windows_sys::Win32::{
 use self::identity::verify_current_user_owner;
 use super::WindowsVmJobLimits;
 
+#[path = "process/identity.rs"]
 mod identity;
 
 const MAX_JOB_CONFIG_BYTES: u32 = 1024;
 
 struct JobHandle(HANDLE);
+
+pub(super) fn current_user_sid() -> io::Result<identity::AlignedSid> {
+    use windows_sys::Win32::{
+        Security::TOKEN_QUERY,
+        System::Threading::{GetCurrentProcess, OpenProcessToken},
+    };
+    let mut token = std::ptr::null_mut();
+    // SAFETY: `token` is a writable output handle and the process pseudo-handle is valid.
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let result = identity::token_user_sid(token);
+    // SAFETY: `token` was returned as an owned handle by OpenProcessToken.
+    unsafe { CloseHandle(token) };
+    result
+}
 
 // Kernel job handles are process-wide capabilities and the Win32 APIs used
 // below permit moving this owned handle between threads.
@@ -275,4 +292,5 @@ fn resume_primary_thread(pid: u32) -> io::Result<()> {
 }
 
 #[cfg(test)]
+#[path = "process/tests.rs"]
 mod tests;

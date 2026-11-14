@@ -1,6 +1,6 @@
 use super::*;
 use std::time::Duration;
-use windows_sys::Win32::{
+use windows_sys::Win32::System::{
     JobObjects::{
         IsProcessInJob, JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP, JOB_OBJECT_LIMIT_ACTIVE_PROCESS,
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_PROCESS_MEMORY,
@@ -8,7 +8,7 @@ use windows_sys::Win32::{
         JobObjectCpuRateControlInformation, JobObjectExtendedLimitInformation,
         QueryInformationJobObject,
     },
-    System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+    Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
 };
 
 /// Production boundary: Windows process creation to Job Object assignment

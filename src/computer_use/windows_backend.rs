@@ -21,6 +21,11 @@ pub(crate) struct WindowsWpxReadiness {
     pub(crate) release_enabled: bool,
 }
 
+#[cfg(target_os = "windows")]
+mod storage;
+#[cfg(any(target_os = "windows", test))]
+mod storage_policy;
+
 impl WindowsWpxReadiness {
     pub(crate) fn diagnostic(self) -> &'static str {
         match self.blocker {
