@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "computer-use-images-v1-17-4cd14bd79caa",
-  "catalogGeneration": 17,
-  "issuedAtUnixMs": 1794614322450,
-  "expiresAtUnixMs": 1802390322450,
+  "catalogVersion": "computer-use-images-v1-18-5ed93157b2ec",
+  "catalogGeneration": 18,
+  "issuedAtUnixMs": 1794623470188,
+  "expiresAtUnixMs": 1802399470188,
   "signerKeyId": "76fe57c9-0102-424b-9bb2-90b7ca745006",
   "images": [
     {
@@ -19,23 +19,23 @@
       "build_attestation_sha256": "sha256:c70d0e3e02f7a65ca25436956011206930a9d8170a1925e5df7930f446f86fc8",
       "companion_protocol_version": 1,
       "companion_sha256": "sha256:c60e3e4e5db0fb53299507883a9df8d7f281dd5320bf95917acdfe889c7b323f",
-      "status": "approved"
+      "status": "revoked"
     },
     {
       "architecture": "x86_64",
-      "image_digest": "sha256:badcb8c10a3fa96a36cb648d7e85a691573ff8941bea6ee6ce308edcb5982013",
+      "image_digest": "sha256:5ed93157b2ec7e94b07ac4c93b4eea6d1f44c3246e2060d2e0cfc1e3f0ba34ea",
       "image_size_bytes": 4294967296,
       "artifact_size_bytes": 682426368,
       "artifact_name": "koolade-computer-use-guest-x86_64.qcow2",
-      "guest_release": "debian-bookworm-5d51d49bc47b",
-      "source_revision": "5d51d49bc47bdbf37d46f4851b832d74835aa031",
-      "build_recipe_sha256": "sha256:2f2a6c430a6234cf358f9af444a332a12024c41a2fcbc2432899ffc0be641472",
+      "guest_release": "debian-bookworm-350347e1c784",
+      "source_revision": "350347e1c784ce480d66f1d36e623483641d2392",
+      "build_recipe_sha256": "sha256:a42e6352de98dfb33dfd10576d084471e6b2b0db1ddeb79179bab0c09f35289f",
       "sbom_sha256": "sha256:c24b767f1f4e7635a31372c2f341a44870843770cea2b6d3bdabb3e5a3681544",
-      "build_attestation_sha256": "sha256:6965b7fc8cb54c3d6286e746cb41231f20799c4f16a7445946aafe7f476870a8",
+      "build_attestation_sha256": "sha256:370f9d1e9ed2335e8def1eebcb297232b80fb1cf83ba39f7729a988be6024f80",
       "companion_protocol_version": 1,
-      "companion_sha256": "sha256:c483fdb4b99e3fb6c40230a8094f30ffe7aa56de92edbfafa7c40fc4dffe92dc",
-      "status": "revoked"
+      "companion_sha256": "sha256:394e7c883b117a7a96b6cbaaee2e3c8f679f87626e65b7a4509b32cdee2efb52",
+      "status": "approved"
     }
   ],
-  "signatureHex": "15c520dd631d94893ffd20967089b17d1bfb2a0dc84c60ccc477f8417104658f86b38d07f551d73dfd3749ae65d5cf3403539cb8c25c26373d64d4e230a8a601"
+  "signatureHex": "76801ad17671918a6a0e0777b76a7fbd82d284ba8b23e2bcd9118a316a0cd754fc8c1aa6bfc7aadc369d77418acc9f55d75cfce2d7a149ff868bf3ec81c8d503"
 }
