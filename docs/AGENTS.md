@@ -9,6 +9,7 @@
 - [computer-use-architecture.md](./computer-use-architecture.md) - Read for Computer Use: architecture, permissions, and operating guide.
 - [computer-use-guest-apps-v1.md](./computer-use-guest-apps-v1.md) - Read for Computer Use guest application catalog and provisioning.
 - [computer-use-guest-images-v1.md](./computer-use-guest-images-v1.md) - Read for Computer Use guest image catalog and cache (CU-03).
+- [computer-use-host-adapters.md](./computer-use-host-adapters.md) - Read for candidate macOS and Windows Computer Use host adapters.
 - [computer-use-personal-auth-fixture-v1.md](./computer-use-personal-auth-fixture-v1.md) - Read for Personal VM synthetic authentication fixture v1.
 - [computer-use-r1-acceptance.md](./computer-use-r1-acceptance.md) - Read for Computer Use R1 offline acceptance infrastructure.
 - [computer-use-readiness-v1.md](./computer-use-readiness-v1.md) - Read for Computer Use readiness probe boundary (v1).
