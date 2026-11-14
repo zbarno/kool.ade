@@ -330,10 +330,11 @@ ProtectKernelLogs=yes
 # This root helper launches only approved applications and drops each child to
 # the locked desktop account with setgroups, setgid, and setuid.
 LockPersonality=yes
-MemoryMax=128M
-# Chromium uses multiple renderer, GPU, and utility processes. Keep the helper
-# cgroup bounded while leaving enough task slots for an approved browser launch.
-TasksMax=64
+# Chromium and its renderer, GPU, and utility processes inherit this service
+# cgroup. Bound the whole approved app tree while leaving room for browser
+# startup within the guest's 2 GiB memory budget.
+MemoryMax=1G
+TasksMax=256
 
 [Install]
 WantedBy=multi-user.target
