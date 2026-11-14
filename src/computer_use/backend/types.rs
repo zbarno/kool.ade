@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
 use super::ComputerBackendErrorV1;
 
 mod backend;
