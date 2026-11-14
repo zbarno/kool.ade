@@ -24,6 +24,15 @@ unsupported. Image availability alone does not imply host support; future
 macOS/Windows backends belong to #395, and platform claims follow the #392
 release matrix.
 
+The image builder also produces a separate AArch64 candidate on a native ARM64
+runner. It uses a Debian `arm64` guest, an EFI System Partition and ARM64 GRUB;
+the manifest schema records architecture as `aarch64` and binds it to the
+`koolade-computer-use-guest-aarch64.qcow2` artifact name. CI repeats the build
+and attests the candidate image and SBOM on a manual `main` workflow dispatch.
+This candidate is not added to the app-signed catalog or image lock, and it
+does not enable runtime selection or certify macOS/Windows support. Real-host
+ARM acceptance remains part of #392.
+
 ## Image build boundary
 
 `containers/computer-use/build-image.sh` is an app-owned build recipe. It uses a

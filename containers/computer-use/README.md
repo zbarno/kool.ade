@@ -1,8 +1,10 @@
 # Computer Use VM image candidates
 
-`build-image.sh OUTPUT_DIR AGENT_BINARY APP_HELPER_BINARY [APP_PACKAGE_DIR]` builds an app-owned, unsigned Debian
+`build-image.sh OUTPUT_DIR AGENT_BINARY APP_HELPER_BINARY [APP_PACKAGE_DIR] [x86_64|aarch64]` builds an app-owned, unsigned Debian
 Bookworm GUI candidate with the authenticated guest companion from the fixed
-snapshot in the script. CI builds the Rust companion with toolchain 1.98.1,
+snapshot in the script. The architecture defaults to `x86_64`; `aarch64`
+builds Debian `arm64` and uses an EFI System Partition with ARM64 GRUB. CI
+builds the Rust companion with toolchain 1.98.1,
 runs the image recipe twice, and requires
 identical image bytes, SBOM, package list, QEMU metadata and recipe records
 before keeping a candidate. The companion and app-helper binary digests are
@@ -28,6 +30,16 @@ and starts the companion as the unprivileged `koolade` account.
 Before packaging, the builder verifies that root and desktop passwords are
 locked, desktop and companion UIDs differ, neither account is root, and neither
 account has `sudo` membership.
+
+The AArch64 workflow runs on a native ARM64 Ubuntu runner, builds both companion
+binaries against the Debian Bookworm ARM64 glibc baseline, and independently
+rebuilds the candidate twice before comparing image and sidecar bytes. Its
+`aarch64` artifact uses the `koolade-computer-use-guest-aarch64` stem. A manual
+workflow run on `main` creates GitHub OIDC provenance and SBOM attestations for
+that exact candidate. This only extends the candidate/schema pipeline: the
+app-signed catalog and `images.lock.json` remain unchanged, no AArch64 image is
+promoted, and runtime host support stays disabled pending the separate #392
+real-host acceptance.
 
 The two-build workflow check covers the production recipe's repeatability
 boundary: separate image builds from one revision and snapshot must produce
