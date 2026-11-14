@@ -21,6 +21,31 @@ pub(crate) struct WindowsWpxReadiness {
     pub(crate) release_enabled: bool,
 }
 
+impl WindowsWpxReadiness {
+    pub(crate) fn diagnostic(self) -> &'static str {
+        match self.blocker {
+            Some(WindowsWpxBlocker::UnsupportedArchitecture) => {
+                "Windows Computer Use is unavailable on this host architecture."
+            }
+            Some(WindowsWpxBlocker::UnsupportedBuild) => {
+                "Windows Computer Use requires a supported Windows x64 build."
+            }
+            Some(WindowsWpxBlocker::HypervisorPlatformMissing) => {
+                "Windows Hypervisor Platform is unavailable; Computer Use cannot start a VM."
+            }
+            Some(WindowsWpxBlocker::HypervisorUnavailable) => {
+                "Windows virtualization is unavailable; check firmware and enterprise policy."
+            }
+            Some(WindowsWpxBlocker::ProbeUnavailable) => {
+                "Windows virtualization readiness could not be verified; Computer Use remains unavailable."
+            }
+            None => {
+                "Windows virtualization is available, but the Computer Use adapter and release gate are incomplete."
+            }
+        }
+    }
+}
+
 pub(crate) fn assess_windows_wpx(
     platform: ComputerHostPlatformV1,
     build: Option<u32>,
@@ -252,6 +277,7 @@ mod tests {
             assert!(!readiness.ready_for_adapter);
             assert!(!readiness.release_enabled);
             assert_eq!(readiness.blocker, Some(blocker));
+            assert!(!readiness.diagnostic().is_empty());
         }
     }
 
@@ -266,6 +292,7 @@ mod tests {
         assert!(readiness.ready_for_adapter);
         assert_eq!(readiness.blocker, None);
         assert!(!readiness.release_enabled);
+        assert!(readiness.diagnostic().contains("adapter and release gate"));
     }
 
     #[test]
