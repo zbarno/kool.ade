@@ -3,6 +3,29 @@ use super::super::{KooladeApp, Screen};
 mod repository_intents;
 use repository_intents::feature_git_intents;
 
+pub(super) fn has_approved_git_intents(
+    project: &crate::app::session::Project,
+    feature_id: &str,
+    feature_uid: Option<&str>,
+) -> bool {
+    if !project.has_selected_code_repository() {
+        return true;
+    }
+    feature_git_intents(&project.planning_work, feature_id, feature_uid)
+        .ok()
+        .flatten()
+        .or_else(|| {
+            project
+                .state
+                .workflow
+                .feature_git_intents
+                .get(feature_id)
+                .filter(|intents| !intents.is_empty())
+                .cloned()
+        })
+        .is_some()
+}
+
 impl KooladeApp {
     pub(crate) fn start_task_generation(&mut self, work_key: &str, feature_id: &str) {
         let (contract, repo_root, ready, work_key) = {

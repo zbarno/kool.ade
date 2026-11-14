@@ -22,6 +22,7 @@ pub enum FailureKind {
 #[serde(rename_all = "snake_case")]
 pub enum RecoveryDisposition {
     AutomaticRetry,
+    AwaitCapabilityRefresh,
     ExplicitResume,
     UserAction,
     DoNotRetry,
@@ -32,6 +33,10 @@ pub struct Failure {
     pub kind: FailureKind,
     pub recovery: RecoveryDisposition,
     pub message: String,
+    #[serde(default)]
+    pub capability_refresh_binding: Option<crate::harness::CapabilityRefreshBindingV1>,
+    #[serde(default)]
+    pub retry_after_unix_ms: Option<u64>,
 }
 
 impl fmt::Display for Failure {
@@ -50,6 +55,23 @@ impl Failure {
             kind,
             recovery,
             message: message.into(),
+            capability_refresh_binding: None,
+            retry_after_unix_ms: None,
+        }
+    }
+
+    pub fn awaiting_capability_refresh(
+        message: impl Into<String>,
+        binding: crate::harness::CapabilityRefreshBindingV1,
+    ) -> Self {
+        Self {
+            kind: FailureKind::ProviderCapabilityMismatch,
+            recovery: RecoveryDisposition::AwaitCapabilityRefresh,
+            message: message.into(),
+            capability_refresh_binding: Some(binding),
+            retry_after_unix_ms: Some(
+                crate::persistence::harness_settings::current_unix_ms().saturating_add(5_000),
+            ),
         }
     }
 

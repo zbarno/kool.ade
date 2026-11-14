@@ -45,7 +45,7 @@ pub(crate) use execution_failure::normalize_provider_error;
 pub use execution_failure::{HarnessExecutionFailure, HarnessFailureCategory};
 pub use planning::*;
 pub(crate) use reasoning::validate_reasoning_level;
-pub use route::HarnessRouteProvenance;
+pub use route::{CapabilityRefreshBindingV1, HarnessRouteProvenance};
 
 /// A brand-new open item proposed by the agent.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -143,6 +143,11 @@ pub trait AiHarness: Send + Sync {
     /// reply. Unavailable routed harnesses expose their diagnostic here so
     /// the UI can keep the reply as a draft instead of consuming it.
     fn route_blocker(&self) -> Option<String> {
+        None
+    }
+
+    /// Route identity that is waiting only for refreshed capability proof.
+    fn capability_refresh_binding(&self) -> Option<CapabilityRefreshBindingV1> {
         None
     }
 

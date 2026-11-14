@@ -17,7 +17,10 @@ pub(super) fn verify_post_qa_spec_repair(
     assert_eq!(old_run.code_review_uids.len(), 1);
     assert_eq!(old_run.runtime_qa_uids.len(), 1);
     assert!(old_run.spec_receipt_uid.is_some());
-    let old_head_sha = "d".repeat(40);
+    let old_head_sha = old_run
+        .implementation_head_sha
+        .clone()
+        .expect("the real worker checkpoint persists its verified head");
     assert_eq!(
         old_run.implementation_head_sha.as_deref(),
         Some(old_head_sha.as_str())

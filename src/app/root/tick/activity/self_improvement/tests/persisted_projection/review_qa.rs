@@ -12,16 +12,30 @@ pub(super) fn verify_reviewer_and_qa_projection(
     task_uid: &str,
 ) {
     let mut task = lifecycle.load_task(task_uid).unwrap();
-    task = apply_task(lifecycle, &task, TaskEvent::Start);
-    let implementation_sha256 = "c".repeat(64);
-    task = apply_task(
-        lifecycle,
-        &task,
-        TaskEvent::ImplementationFinished {
-            code_sha256: implementation_sha256.clone(),
-        },
-    );
-    let head_sha = "d".repeat(40);
+    let implementation_sha256 = task
+        .implementation_sha256
+        .clone()
+        .expect("the local worker completion persists its code hash");
+    assert_eq!(task.phase, TaskPhase::AwaitingRuntimeQa);
+    let code_review = task
+        .code_review
+        .as_ref()
+        .expect("the production implementation path persists independent code review");
+    let code_author_run = code_review.author_run_id.clone().unwrap();
+    let code_author_session = code_review.author_session_id.clone().unwrap();
+    let review_subject_sha256 = task
+        .reviewed_code_subject_sha256
+        .clone()
+        .expect("the task lifecycle stores the reviewed code subject hash");
+    let head_sha = match &app.screen {
+        crate::app::root::Screen::Connected(project) => project
+            .implementation_states
+            .values()
+            .find(|state| state.task_uid.as_deref() == Some(task_uid))
+            .and_then(|state| state.verified_head.clone())
+            .expect("the completed local worker has a verified head"),
+        crate::app::root::Screen::Welcome => panic!("fixture should remain connected"),
+    };
     let mut current_qa = reviewer_receipt(
         PromptRole::RuntimeQaReviewerV3,
         &task,
@@ -92,37 +106,13 @@ pub(super) fn verify_reviewer_and_qa_projection(
 
     super::synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
     let run = runs.load(run_uid).unwrap();
-    assert_eq!(run.phase, Phase::Reviewing);
+    assert_eq!(run.phase, Phase::Qa);
     assert_eq!(
         run.implementation_head_sha.as_deref(),
         Some(head_sha.as_str())
     );
-    assert!(run.code_review_uids.is_empty());
-
-    let code_review = reviewer_receipt(
-        PromptRole::CodeReviewer,
-        &task,
-        &implementation_sha256,
-        &head_sha,
-        uuid::Uuid::new_v4().hyphenated().to_string(),
-        uuid::Uuid::new_v4().hyphenated().to_string(),
-    );
-    let code_author_run = code_review.author_run_id.clone().unwrap();
-    let code_author_session = code_review.author_session_id.clone().unwrap();
-    task = apply_task(
-        lifecycle,
-        &task,
-        TaskEvent::CodeReview {
-            receipt: code_review,
-            reviewed_head_sha: head_sha.clone(),
-            review_subject_sha256: "e".repeat(64),
-        },
-    );
-    assert_eq!(task.phase, TaskPhase::AwaitingRuntimeQa);
-    super::synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
-    let run = runs.load(run_uid).unwrap();
-    assert_eq!(run.phase, Phase::Qa);
     assert_eq!(run.code_review_uids.len(), 1);
+
     assert!(run.runtime_qa_uids.is_empty());
 
     let request = crate::runtime_qa::QaRunRequestV1 {
@@ -138,7 +128,7 @@ pub(super) fn verify_reviewer_and_qa_projection(
         code_head_sha: head_sha.clone(),
         build_artifact_sha256: "f".repeat(64),
         complete_diff_hash: implementation_sha256.clone(),
-        review_subject_sha256: "e".repeat(64),
+        review_subject_sha256,
         approved_spec_hash: task.approved_plan_sha256.clone(),
         requirement_ids: vec!["REQ-001".into()],
         acceptance_criteria: vec!["The reviewed behavior is ready.".into()],
@@ -174,41 +164,35 @@ pub(super) fn verify_reviewer_and_qa_projection(
     assert_eq!(run.runtime_qa_uids.len(), 1);
     assert!(run.spec_receipt_uid.is_none());
 
-    // Production boundary: pass a deterministic no-change SpecReconciler
-    // result through the app's worker-result polling and completion handler.
-    // A reducer-only projection test cannot prove that the real completion
-    // handler persists its application-policy receipt and creates a separate
-    // PR-preparation work item without authorizing publication. This uses the
-    // local fixture stores and synthetic reviewer/QA receipts above; there is
-    // no provider, Docker, or network dependency, with one headless app setup.
-    let crate::app::root::Screen::Connected(project) = &mut app.screen else {
-        panic!("fixture should remain connected")
+    let (work_uid, authorization) =
+        pr_lifecycle::complete_spec_racing_pr_authorization(app, lifecycle, task_uid);
+    let completion_pending = match &app.screen {
+        crate::app::root::Screen::Connected(project) => project.activity.pending.clone(),
+        _ => panic!("fixture should remain connected"),
     };
-    crate::app::root::spec_reconciliation::test_support::complete(
-        project,
-        task_uid,
-        crate::harness::prompt_catalog::SpecDeltaV1 { deltas: Vec::new() },
-        false,
-    );
     let completed = lifecycle.load_task(task_uid).unwrap();
     assert_eq!(
         completed.phase,
         TaskPhase::Done,
         "specification completion was blocked: {:?}",
-        project.activity.pending
+        completion_pending
     );
     let old_work_uid = completed
         .pr_work_item_uid
         .as_deref()
         .expect("spec reconciliation creates a scoped PR-preparation item");
+    assert_eq!(old_work_uid, work_uid);
     let work = lifecycle.load_pr_preparation(old_work_uid).unwrap();
     assert_eq!(work.task_uid, task_uid);
     assert_eq!(work.included_task_uids, vec![task_uid.to_owned()]);
     assert_eq!(
         work.status,
-        crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+        crate::core::lifecycle::PullRequestPreparationStatus::Publishing
     );
-    assert!(work.publication_authorization.is_none());
+    assert_eq!(
+        work.publication_authorization.as_ref(),
+        Some(&authorization)
+    );
 
     super::synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
     assert_eq!(runs.load(run_uid).unwrap().phase, Phase::PrPending);

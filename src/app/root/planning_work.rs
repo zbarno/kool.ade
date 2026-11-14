@@ -6,6 +6,14 @@ mod generation;
 mod git_intent;
 mod task_git_intent;
 
+pub(super) fn task_generation_has_approved_git_intents(
+    project: &crate::app::session::Project,
+    feature_id: &str,
+    feature_uid: Option<&str>,
+) -> bool {
+    generation::has_approved_git_intents(project, feature_id, feature_uid)
+}
+
 pub(super) fn provider_support_follow_up(
     work: &Work,
 ) -> Option<crate::core::planning_work::FollowUpTaskOffer> {

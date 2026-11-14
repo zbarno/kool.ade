@@ -66,3 +66,7 @@ pub(super) fn assert_done_task_has_one_pr_work_item(case: DonePrWorkCase<'_, '_>
         1
     );
 }
+
+#[path = "pr_work/task_intent_projection.rs"]
+mod task_intent_projection;
+pub(super) use task_intent_projection::authorize_publish_and_assert_task_intent;

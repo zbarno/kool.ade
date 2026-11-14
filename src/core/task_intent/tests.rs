@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "tests/done_gates.rs"]
+mod done_gates;
+
 fn root(kind: WorkKind, status: WorkStatus) -> Work {
     let mut work = Work::new(
         "task:request".into(),

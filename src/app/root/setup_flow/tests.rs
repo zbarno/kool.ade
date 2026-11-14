@@ -158,3 +158,90 @@ fn decline_records_a_durable_skip_and_releases_matching_holds() {
         );
     });
 }
+
+/// Production boundary: the machine-local setup pump reloads a verified
+/// prerequisite from the setup-task store and resumes the setup journey without
+/// a manual Resume command. Driver tests cannot prove app persistence and pump
+/// wiring. Uses local setup-task files and a connected app fixture only.
+#[test]
+fn verified_required_setup_resumes_the_persisted_flow_automatically() {
+    use crate::persistence::setup_tasks::{
+        SetupTaskEventV1, SetupTaskStateV1, SetupTaskStoreV1, SetupTaskV1, UserActionReasonV1,
+        VerifiedResultV1,
+    };
+
+    let home = tempfile::tempdir().unwrap();
+    with_connected_app(home.path(), |app| {
+        let id = "setup:computer:kvm";
+        let mut flow = SetupFlowStateV1::start_new("flow-required-resume".into(), NOW).unwrap();
+        flow.last_scan_generation = 2;
+        flow.phase = FlowPhaseV1::WaitingForUser {
+            task_id: id.into(),
+            reason: UserActionReasonV1::OperatingSystemPrompt,
+        };
+        let task = SetupTaskV1 {
+            schema_version: 1,
+            id: id.into(),
+            title: "Enable virtualization".into(),
+            explanation: "A required runtime needs hardware virtualization.".into(),
+            next_step: "Enable virtualization in system settings, then check again.".into(),
+            dependencies: Vec::new(),
+            blocked_by: Vec::new(),
+            state: SetupTaskStateV1::Verified,
+            created_at_unix_ms: NOW,
+            observed_at_unix_ms: NOW,
+            scan_generation: 2,
+            verified_at_unix_ms: Some(NOW),
+            verified_result: Some(VerifiedResultV1 {
+                evidence_domain: "computer:kvm".into(),
+                scan_generation: 2,
+                verified_at_unix_ms: NOW,
+            }),
+            attempts: Vec::new(),
+            events: vec![SetupTaskEventV1 {
+                observed_at_unix_ms: NOW,
+                scan_generation: 2,
+                state: SetupTaskStateV1::Verified,
+            }],
+            superseded_by: Vec::new(),
+        };
+        let store = SetupTaskStoreV1 {
+            latest_scan_generation: 2,
+            tasks: [(id.into(), task)].into_iter().collect(),
+            setup_flow: Some(flow.clone()),
+            ..SetupTaskStoreV1::default()
+        };
+        store.validate().unwrap();
+        let path = crate::persistence::setup_tasks::machine_setup_state_dir()
+            .unwrap()
+            .join("tasks.json");
+        crate::persistence::setup_tasks::save_to_for_test(&path, &store).unwrap();
+        app.setup_flow_boot_synced = true;
+        app.machine_setup_scan_current = true;
+        app.machine_setup_tasks = crate::persistence::setup_tasks::load()
+            .unwrap()
+            .tasks
+            .into_values()
+            .collect();
+
+        app.last_setup_flow_beat = None;
+        app.pump_setup_flow();
+        let resumed = load_flow().unwrap().expect("verified task resumes flow");
+        assert_eq!(resumed.flow_id, flow.flow_id);
+        assert!(matches!(phase_of(&resumed), FlowPhaseV1::Running));
+        assert!(resumed.seen_verified.iter().any(|seen| seen == id));
+
+        app.last_setup_flow_beat = None;
+        app.pump_setup_flow();
+        assert!(matches!(
+            phase_of(load_flow().unwrap().as_ref().unwrap()),
+            FlowPhaseV1::Finishing
+        ));
+        app.last_setup_flow_beat = None;
+        app.pump_setup_flow();
+        assert!(matches!(
+            phase_of(load_flow().unwrap().as_ref().unwrap()),
+            FlowPhaseV1::Complete(crate::persistence::setup_tasks::DoneOutcomeV1::FullyPrepared)
+        ));
+    });
+}

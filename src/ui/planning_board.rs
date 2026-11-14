@@ -144,6 +144,27 @@ impl ViewModel {
             if let Some(phase) = self.lifecycle_tasks.get(&document.path) {
                 task_phases.push(*phase);
             }
+            if let Some(status) = self.lifecycle_pr_statuses.get(&document.path) {
+                task_phases.push(match status {
+                    crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+                    | crate::core::lifecycle::PullRequestPreparationStatus::Publishing => {
+                        crate::core::lifecycle::TaskPhase::PrPending
+                    }
+                    crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention
+                    | crate::core::lifecycle::PullRequestPreparationStatus::ClosedUnmerged => {
+                        crate::core::lifecycle::TaskPhase::Blocked
+                    }
+                    crate::core::lifecycle::PullRequestPreparationStatus::Opened => {
+                        crate::core::lifecycle::TaskPhase::PrOpened
+                    }
+                    crate::core::lifecycle::PullRequestPreparationStatus::Merged => {
+                        crate::core::lifecycle::TaskPhase::PrMerged
+                    }
+                });
+            }
+            if self.lifecycle_pr_statuses.contains_key(&document.path) {
+                continue;
+            }
             if let Some(state) = &document.task_state {
                 use crate::artifacts::task_docs::ExecutionPublicationStatus as Publication;
                 let phase = match state.publication_status {

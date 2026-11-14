@@ -124,6 +124,16 @@ pub(super) fn summarize_task(
                     waiting_on_user.push(summary);
                 }
             }
+            crate::core::implementation::RecoveryDisposition::AwaitCapabilityRefresh => {
+                internal_recovery.push(format!(
+                    "{}: recovering selected harness capability evidence before resuming the exact task route",
+                    doc.title
+                ));
+                return format!(
+                    "{}: {} — recovering selected harness capability",
+                    doc.path, doc.title
+                );
+            }
             crate::core::implementation::RecoveryDisposition::AutomaticRetry
             | crate::core::implementation::RecoveryDisposition::DoNotRetry => {
                 blocked_elsewhere.push(summary);

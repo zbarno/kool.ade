@@ -1,5 +1,8 @@
 use super::approved_comparison_pins;
 
+#[path = "tests/cleanup.rs"]
+mod cleanup;
+
 #[test]
 /// Production boundary: a real broker receipt is verified by the Manager handoff,
 /// converted to a baseline evidence record, and accepted only at its current

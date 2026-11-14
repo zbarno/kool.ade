@@ -65,17 +65,19 @@ impl ExecutionError {
     /// This describes the error only; callers must decide whether retrying
     /// is safe based on whether user work may already have started.
     pub fn is_local_docker_health_disconnect(&self) -> bool {
-        matches!(
-            self.kind,
-            ExecutionErrorKind::EnvironmentUnavailable | ExecutionErrorKind::WorkerDisconnected
-        ) && self.message == LOCAL_DOCKER_HEALTH_DISCONNECTED
+        self.message == LOCAL_DOCKER_HEALTH_DISCONNECTED
     }
 
     /// A retryable health disconnect from the readiness probe before an
     /// execution session or command was created. Retrying here cannot replay
     /// user work.
     pub fn is_retryable_local_docker_health_disconnect(&self) -> bool {
-        self.retryable && self.is_local_docker_health_disconnect()
+        self.retryable
+            && matches!(
+                self.kind,
+                ExecutionErrorKind::EnvironmentUnavailable | ExecutionErrorKind::WorkerDisconnected
+            )
+            && self.is_local_docker_health_disconnect()
     }
 }
 
@@ -148,6 +150,14 @@ mod tests {
         assert!(
             !ExecutionError::new(
                 ExecutionErrorKind::ExecutionFailed,
+                LOCAL_DOCKER_HEALTH_DISCONNECTED,
+                true,
+            )
+            .is_retryable_local_docker_health_disconnect()
+        );
+        assert!(
+            ExecutionError::new(
+                ExecutionErrorKind::WorkerDisconnected,
                 LOCAL_DOCKER_HEALTH_DISCONNECTED,
                 true,
             )

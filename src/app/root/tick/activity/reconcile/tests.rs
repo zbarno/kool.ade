@@ -169,3 +169,92 @@ fn interrupted_code_review_arbitration_returns_to_needs_attention() {
             .contains("Recovered interrupted independent code-review arbitration")
     );
 }
+
+#[test]
+fn stale_store_refresh_preserves_and_retries_local_dirty_work() {
+    let temp = tempfile::tempdir().unwrap();
+    git(temp.path(), &["init", "-q"]);
+    git(temp.path(), &["config", "user.name", "Fixture User"]);
+    git(
+        temp.path(),
+        &["config", "user.email", "fixture@example.invalid"],
+    );
+    std::fs::write(temp.path().join("README.md"), "fixture\n").unwrap();
+    git(temp.path(), &["add", "README.md"]);
+    git(temp.path(), &["commit", "-qm", "fixture"]);
+    let mut project = crate::app::session::test_support::project_from(temp.path());
+    let mut work = crate::core::planning_work::Work::new(
+        "task:retry-after-refresh".into(),
+        "Retry after refresh".into(),
+        "Retain an in-memory edit across unrelated store drift.".into(),
+        "Original detail".into(),
+    );
+    work.status = crate::core::planning_work::WorkStatus::NeedsAttention;
+    project.planning_work.push(work);
+    project.save_planning_work().unwrap();
+    project.planning_work[0].detail = "Local edit awaiting retry".into();
+    project.activity.pending_planning_work = true;
+
+    let mut external = crate::app::session::test_support::project_from(temp.path());
+    external.planning_work =
+        crate::core::planning_work::load(&external.state.planning_store).unwrap();
+    external
+        .planning_work
+        .push(crate::core::planning_work::Work::new(
+            "task:unrelated-store-write".into(),
+            "Unrelated work".into(),
+            "Advance the store revision.".into(),
+            "Durably saved elsewhere.".into(),
+        ));
+    external.save_planning_work().unwrap();
+
+    reconcile_inactive_planning_work(&mut project);
+
+    let persisted = crate::core::planning_work::load(&project.state.planning_store).unwrap();
+    assert_eq!(persisted.len(), 2);
+    assert_eq!(persisted[0].detail, "Local edit awaiting retry");
+    assert_eq!(persisted[1].key, "task:unrelated-store-write");
+    assert!(!project.activity.pending_planning_work);
+}
+
+#[test]
+fn stale_same_record_conflict_is_not_reconciled_as_inactive() {
+    let temp = tempfile::tempdir().unwrap();
+    git(temp.path(), &["init", "-q"]);
+    git(temp.path(), &["config", "user.name", "Fixture User"]);
+    git(
+        temp.path(),
+        &["config", "user.email", "fixture@example.invalid"],
+    );
+    std::fs::write(temp.path().join("README.md"), "fixture\n").unwrap();
+    git(temp.path(), &["add", "README.md"]);
+    git(temp.path(), &["commit", "-qm", "fixture"]);
+    let mut project = crate::app::session::test_support::project_from(temp.path());
+    let mut work = crate::core::planning_work::Work::new(
+        "task:concurrent-record".into(),
+        "Concurrent work".into(),
+        "Preserve the newer durable record.".into(),
+        "Original detail".into(),
+    );
+    work.status = crate::core::planning_work::WorkStatus::InProgress;
+    project.planning_work.push(work);
+    project.save_planning_work().unwrap();
+    project.planning_work[0].detail = "Stale local edit".into();
+    project.activity.pending_planning_work = true;
+
+    let mut external = crate::app::session::test_support::project_from(temp.path());
+    external.planning_work =
+        crate::core::planning_work::load(&external.state.planning_store).unwrap();
+    external.planning_work[0].detail = "Newer durable detail".into();
+    external.planning_work[0].status = crate::core::planning_work::WorkStatus::InProgress;
+    external.save_planning_work().unwrap();
+
+    reconcile_inactive_planning_work(&mut project);
+
+    let persisted = crate::core::planning_work::load(&project.state.planning_store).unwrap();
+    assert_eq!(persisted[0].detail, "Newer durable detail");
+    assert_eq!(
+        persisted[0].status,
+        crate::core::planning_work::WorkStatus::InProgress
+    );
+}

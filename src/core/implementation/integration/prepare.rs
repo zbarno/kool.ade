@@ -213,6 +213,7 @@ pub(super) fn prepare_integration(
                 .push_str(&format!("\nIntegration verification failure: {error}"));
             save(&integration_dir, &integration)?;
             let verification_result = verification::prepare_verified(
+                None,
                 repo,
                 &integration_dir,
                 &mut integration,
