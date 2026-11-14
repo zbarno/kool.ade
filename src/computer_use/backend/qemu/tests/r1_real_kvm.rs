@@ -26,6 +26,8 @@ use crate::computer_use::ComputerResourceLimitsV1;
 
 #[path = "r1_real_kvm/cgroup.rs"]
 mod cgroup;
+#[path = "r1_real_kvm/qmp.rs"]
+mod qmp;
 use cgroup::current_cgroup_root;
 
 const REAL_KVM_ENV: &str = "KOOLADE_COMPUTER_USE_R1_REAL_KVM";
@@ -50,7 +52,9 @@ impl ComputerImageDownloadApprovalV1 for TestImageApproval {
 /// Dependencies: a trusted, unprivileged Linux x86_64 KVM host, root-owned
 /// QEMU 8.x binaries, delegated cgroup v2, and a public 682 MB image download.
 /// Expected setup cost: image download once per fresh temporary test root and
-/// up to 120 seconds for guest boot, action and cleanup.
+/// up to 120 seconds for guest boot, action and cleanup. QMP inspects the live
+/// PCI graph to verify that the disabled-network guest has no network device;
+/// a command-builder unit test cannot detect QEMU-added runtime devices.
 #[test]
 fn computer_use_r1_real_kvm_acceptance() {
     if std::env::var(REAL_KVM_ENV).as_deref() != Ok("1") {
@@ -213,6 +217,13 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         backend
             .wait_ready(&session, &handle, Duration::from_secs(120), unix_time_ms()?)
             .map_err(|error| format!("guest readiness: {error:?}"))?;
+        qmp::assert_no_network_device(
+            &root
+                .join("runtime/sessions")
+                .join(&session.identity.session_id)
+                .join("qemu-qmp.sock"),
+        )
+        .map_err(|error| format!("disabled-network QEMU device graph: {error}"))?;
 
         session.lifecycle = ComputerLifecycleV1::Delegated;
         session
