@@ -42,6 +42,9 @@ impl std::fmt::Display for ComputerBackendErrorV1 {
 }
 
 fn unsupported_host_platform_diagnostic(platform: ComputerHostPlatformV1) -> &'static str {
+    if let Some(compatibility) = platform.macos_compatibility() {
+        return compatibility.diagnostic();
+    }
     match platform {
         ComputerHostPlatformV1::LinuxX86_64 => unsupported_host_diagnostic("linux", "x86_64"),
         ComputerHostPlatformV1::LinuxAarch64 => unsupported_host_diagnostic("linux", "aarch64"),
@@ -120,6 +123,10 @@ mod tests {
         );
         assert!(
             unsupported_host_platform_diagnostic(Platform::WindowsArm64).contains("Windows ARM64")
+        );
+        assert!(
+            unsupported_host_platform_diagnostic(Platform::MacOsAppleSilicon)
+                .contains("approved aarch64 guest image")
         );
     }
 }

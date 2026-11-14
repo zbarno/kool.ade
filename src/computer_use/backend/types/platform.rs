@@ -9,6 +9,25 @@ pub enum ComputerHostPlatformV1 {
     Unsupported,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ComputerGuestArchitectureRequirementV1 {
+    X86_64,
+    Aarch64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ComputerHostSupportBlockerV1 {
+    NativeBackendNotImplemented,
+    ApprovedGuestImageUnavailable,
+    HostReleaseGateClosed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ComputerHostCompatibilityV1 {
+    pub(crate) guest_architecture: ComputerGuestArchitectureRequirementV1,
+    pub(crate) blockers: &'static [ComputerHostSupportBlockerV1],
+}
+
 impl ComputerHostPlatformV1 {
     pub fn current() -> Self {
         Self::from_os_arch(std::env::consts::OS, native_architecture())
@@ -37,6 +56,43 @@ impl ComputerHostPlatformV1 {
             Self::MacOsIntel | Self::MacOsAppleSilicon => Some(Hypervisor::QemuHvf),
             Self::WindowsX64 => Some(Hypervisor::QemuWhpx),
             Self::LinuxAarch64 | Self::WindowsArm64 | Self::Unsupported => None,
+        }
+    }
+
+    /// Report the native-architecture guest requirement and why this macOS
+    /// target remains unavailable. This never selects an image or starts a VM.
+    pub(crate) fn macos_compatibility(self) -> Option<ComputerHostCompatibilityV1> {
+        match self {
+            Self::MacOsIntel => Some(ComputerHostCompatibilityV1 {
+                guest_architecture: ComputerGuestArchitectureRequirementV1::X86_64,
+                blockers: &[
+                    ComputerHostSupportBlockerV1::NativeBackendNotImplemented,
+                    ComputerHostSupportBlockerV1::HostReleaseGateClosed,
+                ],
+            }),
+            Self::MacOsAppleSilicon => Some(ComputerHostCompatibilityV1 {
+                guest_architecture: ComputerGuestArchitectureRequirementV1::Aarch64,
+                blockers: &[
+                    ComputerHostSupportBlockerV1::ApprovedGuestImageUnavailable,
+                    ComputerHostSupportBlockerV1::NativeBackendNotImplemented,
+                    ComputerHostSupportBlockerV1::HostReleaseGateClosed,
+                ],
+            }),
+            _ => None,
+        }
+    }
+}
+
+impl ComputerHostCompatibilityV1 {
+    pub(crate) fn diagnostic(self) -> &'static str {
+        if self.guest_architecture == ComputerGuestArchitectureRequirementV1::Aarch64
+            && self
+                .blockers
+                .contains(&ComputerHostSupportBlockerV1::ApprovedGuestImageUnavailable)
+        {
+            "macOS Apple Silicon Computer Use is unavailable until an approved aarch64 guest image, native backend, and host release gate are ready."
+        } else {
+            "macOS Intel Computer Use is unavailable until its native backend and host release gate are ready."
         }
     }
 }
@@ -177,5 +233,35 @@ mod tests {
         );
         assert_eq!(Platform::WindowsArm64.candidate_qemu_hypervisor(), None);
         assert_eq!(Platform::Unsupported.candidate_qemu_hypervisor(), None);
+    }
+
+    #[test]
+    fn macos_selects_a_native_guest_architecture_without_enabling_the_backend() {
+        use super::{
+            ComputerGuestArchitectureRequirementV1 as Guest,
+            ComputerHostSupportBlockerV1 as Blocker,
+        };
+
+        let intel = Platform::MacOsIntel.macos_compatibility().unwrap();
+        assert_eq!(intel.guest_architecture, Guest::X86_64);
+        assert_eq!(
+            intel.blockers,
+            &[
+                Blocker::NativeBackendNotImplemented,
+                Blocker::HostReleaseGateClosed
+            ]
+        );
+
+        let apple_silicon = Platform::MacOsAppleSilicon.macos_compatibility().unwrap();
+        assert_eq!(apple_silicon.guest_architecture, Guest::Aarch64);
+        assert_eq!(
+            apple_silicon.blockers,
+            &[
+                Blocker::ApprovedGuestImageUnavailable,
+                Blocker::NativeBackendNotImplemented,
+                Blocker::HostReleaseGateClosed
+            ]
+        );
+        assert_eq!(Platform::WindowsArm64.macos_compatibility(), None);
     }
 }
