@@ -15,7 +15,7 @@ not a pass.
 
 | Capability | Implementation and automated evidence | Real-host / release evidence | Current gate and remaining proof |
 | --- | --- | --- | --- |
-| R1 offline disposable VM | Signed generation 19 is catalog-pinned after [PR #628](https://github.com/zbarno/kool.ade/pull/628) merged. The bounded app-helper cgroup fix is in [PR #627](https://github.com/zbarno/kool.ade/pull/627). Both PRs and their required hosted checks passed. | The local Linux x86_64 host passed production QEMU/KVM boot, authenticated Chromium launch, guest/display capture, mouse and keyboard input, lifecycle handoff fencing, and VM release against the published generation 19 image. The input/handoff acceptance merged in [PR #630](https://github.com/zbarno/kool.ade/pull/630) at `491968372230e2dbaa75f6d189d791c6765fb6d9` after all required hosted checks passed. | Candidate build and attestations [43557367751](https://github.com/zbarno/kool.ade/actions/runs/43557367751), signed catalog promotion [43558652176](https://github.com/zbarno/kool.ade/actions/runs/43558652176), catalog PR [#628](https://github.com/zbarno/kool.ade/pull/628), and published release [43561711152](https://github.com/zbarno/kool.ade/actions/runs/43561711152) passed. This positive path does not establish guest/host isolation negatives, file bridge, seeded QA repair, live viewer UI, crash recovery, or performance limits. Keep R1 release certification closed until those required checks have evidence. |
+| R1 offline disposable VM | Signed generation 19 is catalog-pinned after [PR #628](https://github.com/zbarno/kool.ade/pull/628) merged. The bounded app-helper cgroup fix is in [PR #627](https://github.com/zbarno/kool.ade/pull/627). Both PRs and their required hosted checks passed. | The local Linux x86_64 host passed production QEMU/KVM boot, authenticated Chromium launch, guest/display capture, mouse and keyboard input, lifecycle handoff fencing, and VM release against the published generation 19 image. The input/handoff acceptance merged in [PR #630](https://github.com/zbarno/kool.ade/pull/630) at `491968372230e2dbaa75f6d189d791c6765fb6d9` after all required hosted checks passed. The pending [PR #632](https://github.com/zbarno/kool.ade/pull/632) adds a local real-KVM check for the live PCI graph, QEMU environment isolation, and P15 artifact transfer/launch handoff. | Candidate build and attestations [43557367751](https://github.com/zbarno/kool.ade/actions/runs/43557367751), signed catalog promotion [43558652176](https://github.com/zbarno/kool.ade/actions/runs/43558652176), catalog PR [#628](https://github.com/zbarno/kool.ade/pull/628), and published release [43561711152](https://github.com/zbarno/kool.ade/actions/runs/43561711152) passed. Even with #632, the full guest/host isolation and network-denial matrices, seeded QA repair, live viewer UI, crash recovery, and performance limits remain unproven. Keep R1 release certification closed until those required checks have evidence. |
 | Host readiness and novice setup (#378) | The readiness and setup implementation is merged; preflight checks Linux architecture, QEMU/KVM access, root-owned QEMU binaries, and delegated cgroup v2 controllers. | Pop!_OS 24.04 LTS, x86_64, kernel `7.2.15-76070215-generic`, Intel Core i7-1195G7, QEMU/qemu-img 8.2.2, writable `/dev/kvm`; the host preflight and real guest acceptance both passed in a transient delegated user scope. | This proves readiness and the positive boot/action/stream/cleanup path on this host. Novice setup usability and broader isolation/negative tests remain separate evidence. |
 | Guest image and authenticated companion (#379, #380, #381) | Generation 19 is the current published signed catalog entry. It includes the merged app-helper cgroup capacity fix and companion protocol 1. | The local real-KVM acceptance verified the signed generation 19 image, authenticated the companion, launched Chromium, captured authenticated guest and display frames, and released the VM successfully. | Candidate build [43557367751](https://github.com/zbarno/kool.ade/actions/runs/43557367751), promotion [43558652176](https://github.com/zbarno/kool.ade/actions/runs/43558652176), catalog PR [#628](https://github.com/zbarno/kool.ade/pull/628), and publication [43561711152](https://github.com/zbarno/kool.ade/actions/runs/43561711152) completed. Broader guest/host isolation negatives and restart/crash recovery remain unverified. |
 | GUI actions, viewer/takeover, guest apps, artifacts, and QA repair (#382, #383, #385, #389, #394) | The component issues are merged with automated contract, policy, artifact, provisioning, and UI coverage. The guest reports accessibility-tree inspection as unsupported in v1. | On 2026-11-14, real KVM accepted mouse/keyboard actions against Chromium, verified changed guest frames, and exercised actor replacement and stale-authority rejection during human control and handback. See merged [PR #630](https://github.com/zbarno/kool.ade/pull/630) and [#392 comment 6873770367](https://github.com/zbarno/kool.ade/issues/392#issuecomment-6873770367). | File bridge, artifact isolation under adversarial input, seeded QA repair, live viewer UI takeover usability, accessibility, and performance measurements still need integrated evidence. Mock and synthetic-browser tests do not prove these paths. |
@@ -69,6 +69,18 @@ agent/human capabilities could not execute after replacement. This checks the
 controller/guest action and actor-fencing path; it does not test the live viewer
 UI, external manual input, file bridge, or guest/host escape boundaries.
 
+At PR #632 head `e24e2dcaf5e68b0bc490b233be4837e0fd7fdb8b`, the same local host
+passed the opt-in real-KVM test in 68.95 seconds with the published generation
+19 image. QMP confirmed the disabled-network VM exposed no PCI network device;
+the QEMU process did not inherit the synthetic runner canary; and a synthetic
+P15 grant and artifact crossed the authenticated guest channel and reached the
+guest-helper launch handoff. The command ran in a delegated systemd user scope
+with `KOOLADE_COMPUTER_USE_R1_REAL_KVM=1` and
+`KOOLADE_R1_REAL_KVM_HOST_SECRET_CANARY=synthetic-canary`. The artifact uses
+synthetic approval data and proves transfer/protocol acceptance only, not real
+QA approval or application readiness. PR #632's hosted checks and review are
+still pending.
+
 The official real-KVM workflow is manually dispatched on protected `main` and
 requires that runner label. A run with `require_kvm_host=false` is explicitly
 not acceptance evidence. The owner-operated usability walkthrough is not a
@@ -85,7 +97,7 @@ are.
   `remote_computer_use_release_gate_open_v1() = false`.
 - macOS and Windows host adapters remain unsupported while #395 is open.
 - Accessibility-tree inspection is unsupported in the guest v1 agent.
-- No adversarial guest/host isolation matrix, repeated resource/cleanup run,
+- No broad adversarial guest/host isolation matrix, repeated resource/cleanup run,
   or accepted provisioning/screen/idle performance measurements are recorded
   yet. The successful positive-path run above does not cover these cases.
 - At merge time, PRs #593 and #595 were merged by `zbarno`; GitHub had no
