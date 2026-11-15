@@ -636,6 +636,18 @@ jobs:
           computer_use::windows_backend::storage::tests::af_unix_tests
           --manifest-path tests/windows-computer-use-storage/Cargo.toml
           -- --nocapture
+      - name: Verify protected short-path listener integration
+        run: >-
+          cargo +1.98.1 test --locked
+          computer_use::windows_backend::storage::tests::guest_control_listener_uses_the_short_private_storage_path
+          --manifest-path tests/windows-computer-use-storage/Cargo.toml
+          -- --nocapture
+      - name: Verify Windows AF_UNIX peer PID identification
+        run: >-
+          cargo +1.98.1 test --locked
+          computer_use::windows_backend::transport::af_unix::tests::peer_pid_ioctl_matches_the_connected_windows_af_unix_client
+          --manifest-path tests/windows-computer-use-storage/Cargo.toml
+          -- --nocapture
   # Supersedes the Fedora 44 Pi host-runtime smoke test: runtime availability
   # now comes from the pinned executor image, exercised by rootless Docker E2E.
   docker-only-check:

@@ -37,6 +37,14 @@ fn storage_accepts_only_the_private_exact_session_af_unix_leaf() {
         root.path(),
         &path
     ));
+    let short_transport_root = root.path().join("t");
+    let transport_socket = short_transport_root
+        .join("123e4567-e89b-12d3-a456-426614174000")
+        .join("guest-control-v1.sock");
+    assert!(super::super::tree::is_expected_guest_socket(
+        &short_transport_root,
+        &transport_socket
+    ));
     let handle = open_leaf_handle(&path);
     set_socket_owner(handle, &sid);
     assert_eq!(
@@ -58,20 +66,25 @@ fn storage_accepts_only_the_private_exact_session_af_unix_leaf() {
 
 #[test]
 fn storage_rejects_af_unix_socket_with_wrong_name_or_ancestor() {
-    for relative in [
-        "sessions/123e4567-e89b-12d3-a456-426614174000/other.sock",
-        "sessions/nested/123e4567-e89b-12d3-a456-426614174000/guest-control-v1.sock",
-    ] {
-        let root = ShortStorageRoot::new();
-        let path = root.path().join(relative);
-        std::fs::create_dir_all(path.parent().expect("socket parent")).expect("parents");
-        let socket = BoundUnixSocket::new(&path);
-        assert!(
-            !super::super::tree::is_expected_guest_socket(root.path(), &path),
-            "{relative}"
-        );
-        drop(socket);
-    }
+    let root = ShortStorageRoot::new();
+    let wrong_name = root
+        .path()
+        .join("sessions/123e4567-e89b-12d3-a456-426614174000/other.sock");
+    std::fs::create_dir_all(wrong_name.parent().expect("socket parent")).expect("parents");
+    let socket = BoundUnixSocket::new(&wrong_name);
+    assert!(!super::super::tree::is_expected_guest_socket(
+        root.path(),
+        &wrong_name
+    ));
+    drop(socket);
+
+    let nested_ancestor = root
+        .path()
+        .join("sessions/nested/123e4567-e89b-12d3-a456-426614174000/guest-control-v1.sock");
+    assert!(!super::super::tree::is_expected_guest_socket(
+        root.path(),
+        &nested_ancestor
+    ));
 }
 
 #[test]
@@ -287,32 +300,32 @@ fn session_path(root: &Path) -> PathBuf {
     session
 }
 
-struct ShortStorageRoot {
+pub(super) struct ShortStorageRoot {
     path: PathBuf,
 }
 
 impl ShortStorageRoot {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         static NEXT_ROOT: AtomicUsize = AtomicUsize::new(0);
-        let user_profile = std::env::var_os("USERPROFILE").expect("user profile");
-        let user_profile = PathBuf::from(user_profile);
-        for _ in 0..1024 {
-            let name = format!(
-                "k{:x}{:x}",
-                std::process::id(),
-                NEXT_ROOT.fetch_add(1, Ordering::Relaxed)
-            );
-            let directory = user_profile.join(name);
-            match std::fs::create_dir(&directory) {
+        let local_app_data = super::super::path::local_app_data().expect("Local AppData");
+        const ROOT_NAMES: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let current_sid =
+            super::super::super::process::current_user_sid().expect("current user SID");
+        let mut security = super::PrivateDirectorySecurity::new(&current_sid)
+            .expect("private temporary directory security");
+        for _ in 0..ROOT_NAMES.len() {
+            let index = NEXT_ROOT.fetch_add(1, Ordering::Relaxed) % ROOT_NAMES.len();
+            let directory = local_app_data.join(char::from(ROOT_NAMES[index]).to_string());
+            match super::create_or_lock_directory(&directory, &mut security, &current_sid) {
                 Ok(()) => return Self { path: directory },
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => panic!("create short temporary storage root: {error}"),
+                Err(error) => panic!("create short Local AppData storage root: {error}"),
             }
         }
-        panic!("unable to allocate a unique short storage root");
+        panic!("unable to allocate a unique short Local AppData storage root");
     }
 
-    fn path(&self) -> &Path {
+    pub(super) fn path(&self) -> &Path {
         &self.path
     }
 }
@@ -336,8 +349,10 @@ impl BoundUnixSocket {
         );
         let path_bytes = path.to_str().expect("UTF-8 test path").as_bytes();
         assert!(path_bytes.len() < 108, "AF_UNIX path limit");
-        let mut address = SOCKADDR_UN::default();
-        address.sun_family = AF_UNIX;
+        let mut address = SOCKADDR_UN {
+            sun_family: AF_UNIX,
+            ..Default::default()
+        };
         for (slot, byte) in address.sun_path.iter_mut().zip(path_bytes) {
             *slot = *byte as i8;
         }

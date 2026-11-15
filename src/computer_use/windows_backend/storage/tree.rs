@@ -27,6 +27,9 @@ use super::security::{
     private_acl_matches_current_user_and_system, set_private_dacl,
 };
 
+#[path = "tree/ownership.rs"]
+mod ownership;
+
 const MAX_STORAGE_DEPTH: usize = 64;
 const MAX_STORAGE_OBJECTS: usize = 100_000;
 
@@ -159,12 +162,27 @@ pub(super) fn is_expected_guest_socket(storage_root: &Path, path: &Path) -> bool
     let Some(session_dir) = path.parent() else {
         return false;
     };
-    session_dir.parent() == Some(sessions.as_path())
+    let valid_session = session_dir
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(super::super::storage_policy::valid_session_id);
+    let expected_session_parent = session_dir.parent() == Some(sessions.as_path())
+        || (storage_root.file_name() == Some(std::ffi::OsStr::new("t"))
+            && session_dir.parent() == Some(storage_root));
+    expected_session_parent
+        && valid_session
         && path.file_name() == Some(std::ffi::OsStr::new("guest-control-v1.sock"))
-        && session_dir
-            .file_name()
-            .and_then(std::ffi::OsStr::to_str)
-            .is_some_and(super::super::storage_policy::valid_session_id)
+}
+
+/// Winsock creates the AF_UNIX reparse leaf with the token's default owner.
+/// After bind succeeds, claim this exact new leaf for the app user before the
+/// normal strict owner and ACL validation runs.
+pub(super) fn set_new_guest_socket_owner(
+    storage_root: &Path,
+    path: &Path,
+    current_sid: &[u8],
+) -> io::Result<()> {
+    ownership::set_new_guest_socket_owner(storage_root, path, current_sid)
 }
 
 pub(super) fn validate_guest_socket_handle(handle: HANDLE, current_sid: &[u8]) -> io::Result<()> {
