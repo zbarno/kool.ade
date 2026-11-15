@@ -1,8 +1,10 @@
 # Computer Use host adapter design
 
-Status: implementation design. macOS and Windows host virtualization remain
-unavailable. This document records candidate hypervisors and the security
-conditions an adapter must meet before it can be enabled.
+Status: implementation design with an offline macOS QEMU/HVF launch planner.
+macOS and Windows host virtualization remain unavailable. The launch planner
+does not start QEMU or establish process, resource, or storage containment.
+This document records candidate hypervisors and the security conditions an
+adapter must meet before it can be enabled.
 
 ## Candidate host and guest pairs
 
@@ -61,6 +63,17 @@ grant protocol; the VM must not receive an unrestricted host directory mount.
 
 ### macOS
 
+- The current macOS code produces a fixed, offline QEMU launch plan for the
+  native host architecture: `qemu-system-x86_64` with `q35` on Intel, and
+  `qemu-system-aarch64` with `virt` on Apple silicon. Both plans require HVF,
+  disable guest networking and QEMU defaults, validate CPU/memory inputs, and
+  accept only absolute, restricted-character path strings without QEMU option
+  separators. Unix socket paths are limited to the macOS `sun_path` bound.
+- This planner is not connected to a process launcher or `ComputerBackend`.
+  It does not verify path ownership/symlinks, image architecture/provenance,
+  QEMU binary trust, VM resource enforcement, guest/display socket peer
+  identity, cancellation, or recovery. No plan may be executed until those
+  controls are implemented and reviewed; `release_enabled` remains false.
 - Probe Intel versus Apple silicon host identity and HVF availability
   independently. Keep the backend unavailable if the result is unknown.
 - Use an architecture-matched signed guest image and the existing signed
@@ -88,6 +101,25 @@ grant protocol; the VM must not receive an unrestricted host directory mount.
 - Canonicalize all runtime and overlay paths and reject reparse points,
   reserved device names, and paths outside the app-owned data root.
 
+The current #395 Windows slice adds a deterministic QEMU/WHPX launch plan and
+resource mapping to the existing Windows storage and Job Object primitives.
+The plan fixes the guest to WHPX, an x86_64 machine, a qcow2 overlay, a single
+candidate virtio-serial control endpoint, and no network or display listener. It
+caps guest vCPU and RAM from the signed session budget and configures Job Object
+CPU, process-memory, and process-count limits.
+
+The slice does not start a VM. QEMU's built-in Windows `pipe` chardev creates
+the named pipe itself with a default security descriptor; the QEMU backend does
+not set `PIPE_REJECT_REMOTE_CLIENTS`. Windows documents that a default named
+pipe descriptor grants read access to Everyone and Anonymous, so the control
+transport fails closed before connecting. The release gate remains disabled
+pending a transport that proves a private per-user ACL, local-only access,
+server identity, and the existing authenticated guest handshake. This work also
+does not provide a Windows disk quota, signed QEMU executable verification,
+display/input proxy, or native Windows acceptance. Guest-visible virtual disk
+capacity is bounded by the session policy, but physical qcow2 growth is not a
+host disk quota.
+
 ## Required deterministic tests
 
 Platform fixtures must cover native architecture selection (including Rosetta),
@@ -108,5 +140,7 @@ fall back to executing an agent on the host.
 
 - [QEMU supported acceleration frameworks](https://www.qemu.org/docs/master/system/introduction.html)
 - [QEMU Windows Hypervisor Platform backend](https://www.qemu.org/docs/master/system/whpx.html)
+- [QEMU Windows named-pipe behavior](https://www.qemu.org/docs/master/system/qemu-manpage.html)
+- [Microsoft named-pipe security and access rights](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights)
 - [Apple Virtualization framework](https://developer.apple.com/documentation/virtualization)
 - [Apple Virtualization entitlement](https://developer.apple.com/documentation/virtualization/adding-the-virtualization-entitlement-to-your-project)

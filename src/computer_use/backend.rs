@@ -14,6 +14,8 @@ pub use errors::ComputerBackendErrorV1;
 pub use qemu::LocalKvmComputerBackend;
 #[cfg(not(target_os = "linux"))]
 pub use qemu_unsupported::LocalKvmComputerBackend;
+#[cfg(any(target_os = "windows", test))]
+pub(crate) use types::GuestChannelIo;
 pub use types::{
     ComputerBackend, ComputerBackendEventKindV1, ComputerBackendEventV1, ComputerBackendProbeV1,
     ComputerDisplayFrameV1, ComputerDisplayInputV1, ComputerGuestChannelV1,
