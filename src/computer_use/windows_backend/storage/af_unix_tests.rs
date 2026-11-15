@@ -302,23 +302,18 @@ pub(super) struct ShortStorageRoot {
 impl ShortStorageRoot {
     pub(super) fn new() -> Self {
         static NEXT_ROOT: AtomicUsize = AtomicUsize::new(0);
-        let temporary_root = std::env::var_os("RUNNER_TEMP")
-            .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir);
-        for _ in 0..1024 {
-            let name = format!(
-                "k{:x}{:x}",
-                std::process::id(),
-                NEXT_ROOT.fetch_add(1, Ordering::Relaxed)
-            );
-            let directory = temporary_root.join(name);
+        let local_app_data = super::super::path::local_app_data().expect("Local AppData");
+        const ROOT_NAMES: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        for _ in 0..ROOT_NAMES.len() {
+            let index = NEXT_ROOT.fetch_add(1, Ordering::Relaxed) % ROOT_NAMES.len();
+            let directory = local_app_data.join(char::from(ROOT_NAMES[index]).to_string());
             match std::fs::create_dir(&directory) {
                 Ok(()) => return Self { path: directory },
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => panic!("create short temporary storage root: {error}"),
+                Err(error) => panic!("create short Local AppData storage root: {error}"),
             }
         }
-        panic!("unable to allocate a unique short storage root");
+        panic!("unable to allocate a unique short Local AppData storage root");
     }
 
     pub(super) fn path(&self) -> &Path {
