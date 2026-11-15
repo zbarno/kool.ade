@@ -36,11 +36,7 @@ use windows_sys::Win32::{
 
 use super::storage_policy::{WindowsStorageFacts, assess_storage_facts, valid_session_id};
 
-#[cfg(not(test))]
 const STORAGE_DIRECTORY_PARTS: [&str; 3] = ["Koolade", "ComputerUse", "v1"];
-// Keep native test paths short enough for the Windows AF_UNIX sun_path limit.
-#[cfg(test)]
-const STORAGE_DIRECTORY_PARTS: [&str; 3] = ["K", "C", "t"];
 
 pub(crate) struct WindowsVmStorage {
     root: PathBuf,

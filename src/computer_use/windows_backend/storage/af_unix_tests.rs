@@ -1,6 +1,5 @@
 //! Native Windows fixtures for the narrowly permitted AF_UNIX storage leaf.
 
-use super::super::WindowsVmStorage;
 use std::{
     os::windows::ffi::OsStrExt,
     path::{Path, PathBuf},
@@ -22,14 +21,14 @@ use windows_sys::Win32::{
 
 #[test]
 fn storage_accepts_only_the_private_exact_session_af_unix_leaf() {
-    let short_root = ShortStorageRoot::new();
-    let storage = WindowsVmStorage::open_at(short_root.path()).expect("secure storage");
-    let session_id = "123e4567-e89b-12d3-a456-426614174000";
-    let session = storage.session_directory(session_id).expect("session");
+    let root = ShortStorageRoot::new();
+    let session = session_path(root.path());
     let socket = BoundUnixSocket::new(&session.join("guest-control-v1.sock"));
-
-    WindowsVmStorage::open_at(short_root.path())
-        .expect("accept exact user-owned AF_UNIX socket with inherited private ACL");
+    let sid = super::super::super::process::current_user_sid()
+        .expect("current SID")
+        .to_vec();
+    super::super::tree::lock_existing_descendants(root.path(), &sid)
+        .expect("accept exact user-owned AF_UNIX socket with private ACL");
     drop(socket);
 }
 
@@ -39,13 +38,12 @@ fn storage_rejects_af_unix_socket_with_wrong_name_or_ancestor() {
         "sessions/123e4567-e89b-12d3-a456-426614174000/other.sock",
         "sessions/nested/123e4567-e89b-12d3-a456-426614174000/guest-control-v1.sock",
     ] {
-        let short_root = ShortStorageRoot::new();
-        let storage = WindowsVmStorage::open_at(short_root.path()).expect("secure storage");
-        let path = storage.root().join(relative);
+        let root = ShortStorageRoot::new();
+        let path = root.path().join(relative);
         std::fs::create_dir_all(path.parent().expect("socket parent")).expect("parents");
         let socket = BoundUnixSocket::new(&path);
         assert!(
-            WindowsVmStorage::open_at(short_root.path()).is_err(),
+            super::super::tree::lock_existing_descendants(root.path(), &current_sid()).is_err(),
             "{relative}"
         );
         drop(socket);
@@ -54,11 +52,8 @@ fn storage_rejects_af_unix_socket_with_wrong_name_or_ancestor() {
 
 #[test]
 fn socket_validation_rejects_wrong_tag_owner_and_acl() {
-    let short_root = ShortStorageRoot::new();
-    let storage = WindowsVmStorage::open_at(short_root.path()).expect("secure storage");
-    let session = storage
-        .session_directory("123e4567-e89b-12d3-a456-426614174000")
-        .expect("session");
+    let root = ShortStorageRoot::new();
+    let session = session_path(root.path());
     let path = session.join("guest-control-v1.sock");
     let sid = super::super::super::process::current_user_sid()
         .expect("current SID")
@@ -81,7 +76,7 @@ fn socket_validation_rejects_wrong_tag_owner_and_acl() {
         unsafe { CreateSymbolicLinkW(wide_link.as_ptr(), wide_target.as_ptr(), 2) },
         "create unprivileged file symlink fixture"
     );
-    assert!(WindowsVmStorage::open_at(short_root.path()).is_err());
+    assert!(super::super::tree::lock_existing_descendants(root.path(), &sid).is_err());
     std::fs::remove_file(&path).expect("remove symbolic-link fixture");
 
     // A regular file also fails the exact socket-tag validator.
@@ -100,8 +95,22 @@ fn socket_validation_rejects_wrong_tag_owner_and_acl() {
     unsafe { CloseHandle(handle) };
 
     super::set_world_access_dacl(&path);
-    assert!(WindowsVmStorage::open_at(short_root.path()).is_err());
+    assert!(super::super::tree::lock_existing_descendants(root.path(), &sid).is_err());
     drop(socket);
+}
+
+fn current_sid() -> Vec<u8> {
+    super::super::super::process::current_user_sid()
+        .expect("current SID")
+        .to_vec()
+}
+
+fn session_path(root: &Path) -> PathBuf {
+    let session = root
+        .join("sessions")
+        .join("123e4567-e89b-12d3-a456-426614174000");
+    std::fs::create_dir_all(&session).expect("create session directory");
+    session
 }
 
 struct ShortStorageRoot {
