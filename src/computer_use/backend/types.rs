@@ -11,7 +11,7 @@ mod guest_channel;
 mod platform;
 
 pub use backend::ComputerBackend;
-#[cfg(any(target_os = "windows", target_os = "macos", test))]
+#[cfg(any(target_os = "windows", test))]
 pub(crate) use guest_channel::GuestChannelIo;
 pub use guest_channel::{ComputerGuestChannelV1, ComputerGuestReadinessV1};
 pub use platform::ComputerHostPlatformV1;
