@@ -149,7 +149,11 @@ fn socket_owner_sid(handle: HANDLE) -> String {
         )
     };
     assert_eq!(status, 0, "query AF_UNIX owner SID");
-    let result = sid_string_from_ptr(owner);
+    let result = if owner.is_null() {
+        "<null>".to_owned()
+    } else {
+        sid_string_from_ptr(owner)
+    };
     unsafe { LocalFree(descriptor.cast()) };
     result
 }
