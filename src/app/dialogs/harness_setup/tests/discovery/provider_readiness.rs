@@ -49,6 +49,11 @@ fn verified_profiles_enable_provider_roles_without_a_docker_target() {
             ReadinessState::Unavailable,
             "{id}"
         );
+        assert_eq!(
+            snapshot.supports_role(HarnessRole::Manager),
+            id == "pi",
+            "Manager investigation is app-brokered and remains usable without Docker for {id}"
+        );
         assert!(
             snapshot
                 .modes

@@ -82,10 +82,16 @@ impl HarnessRole {
     }
 
     /// Roles that can use repository or command tools require the application
-    /// execution bridge. Context-only roles remain available without Docker.
+    /// execution bridge. The Manager investigation broker is application
+    /// mediated and does not use the Docker execution target.
     pub fn requires_execution_target(self) -> bool {
         self == Self::RuntimeQaReviewer
-            || self.harness_mode().tool_access() != crate::harness::ToolAccess::None
+            || matches!(
+                self.harness_mode().tool_access(),
+                crate::harness::ToolAccess::ReadOnly
+                    | crate::harness::ToolAccess::BoundedImplementation
+                    | crate::harness::ToolAccess::RuntimeQaScreenshots
+            )
     }
 }
 
@@ -162,11 +168,16 @@ impl HarnessCapabilitySnapshotV1 {
             .iter()
             .find(|readiness| readiness.mode == mode)
             .is_some_and(|readiness| readiness.available == ReadinessState::Ready);
-        let execution_ready = matches!(
-            mode.tool_access(),
-            crate::harness::ToolAccess::None | crate::harness::ToolAccess::RuntimeQaScreenshots
-        ) || (self.docker_mcp_bridge == ReadinessState::Ready
-            && self.execution_target == ReadinessState::Ready);
+        let execution_ready = match mode.tool_access() {
+            crate::harness::ToolAccess::None
+            | crate::harness::ToolAccess::InvestigationBroker
+            | crate::harness::ToolAccess::RuntimeQaScreenshots => true,
+            crate::harness::ToolAccess::ReadOnly
+            | crate::harness::ToolAccess::BoundedImplementation => {
+                self.docker_mcp_bridge == ReadinessState::Ready
+                    && self.execution_target == ReadinessState::Ready
+            }
+        };
         provider_ready && mode_ready && execution_ready
     }
 

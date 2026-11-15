@@ -40,6 +40,7 @@ pub(super) fn create_record(
             false,
             false,
             false,
+            false,
         ),
     );
     card.status = if ready {
@@ -91,6 +92,7 @@ pub(super) fn update_record(
     blockers: Vec<String>,
     confirmed: bool,
     review_failed: bool,
+    review_unable: bool,
     approved: bool,
     hash: &str,
     spec_revision: &str,
@@ -134,6 +136,7 @@ pub(super) fn update_record(
         confirmed,
         drift,
         review_failed,
+        review_unable,
         approved,
     );
 

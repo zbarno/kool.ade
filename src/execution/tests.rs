@@ -244,6 +244,7 @@ fn role_selection_maps_to_security_modes_without_provider_authority() {
         crate::harness::ExecutionMode::ReadOnlyAnalysis
     );
     assert!(!HarnessRole::PRPreparer.requires_execution_target());
+    assert!(!HarnessRole::Manager.requires_execution_target());
     assert_eq!(
         HarnessRole::RepairWorker.execution_mode(),
         ExecutionModeV1::Implementation

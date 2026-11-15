@@ -81,7 +81,7 @@ impl KooladeApp {
                         && work.feature_uid.as_deref() == Some(identity.uid.as_str())
                 }) {
                     work.status = crate::core::planning_work::WorkStatus::InProgress;
-                    work.detail = "ReviewUnable was recorded. A bounded independent review retry is running; task generation remains blocked.".into();
+                    work.detail = "The independent review retry is running. Task creation remains paused until it finishes.".into();
                     if let Err(error) = project.save_planning_work() {
                         project.activity.pending.push(format!(
                             "Plan review retry started, but its board status could not be saved: {error}"

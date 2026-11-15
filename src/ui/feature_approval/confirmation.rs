@@ -66,9 +66,18 @@ pub(super) fn paint_review(
     ui: &mut egui::Ui,
     verdict: &crate::harness::prompt_catalog::ReviewVerdictV1,
 ) {
-    ui.heading("Independent review findings");
-    if verdict.outcome == Some(crate::harness::prompt_catalog::ReviewOutcomeV1::ReviewUnable) {
-        ui.label("The reviewer could not complete a defensible assessment. Task generation remains blocked.");
+    let review_unable =
+        verdict.outcome == Some(crate::harness::prompt_catalog::ReviewOutcomeV1::ReviewUnable);
+    ui.heading(if review_unable {
+        "Independent review could not finish"
+    } else {
+        "Independent review findings"
+    });
+    if review_unable {
+        ui.label("The reviewer stopped before finishing its checks. The items below show what was left unchecked.");
+        list(ui, "Requirements not checked", &verdict.untested);
+        list(ui, "Areas not checked", &verdict.unexamined_areas);
+        return;
     }
     for finding in &verdict.findings {
         ui.collapsing(
