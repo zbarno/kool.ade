@@ -1,16 +1,20 @@
 //! Native Windows fixtures for the narrowly permitted AF_UNIX storage leaf.
 
 use std::{
-    os::windows::ffi::OsStrExt,
+    os::windows::ffi::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
     ptr::{null, null_mut},
     sync::atomic::{AtomicUsize, Ordering},
 };
 use windows_sys::Win32::{
-    Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE},
+    Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, LocalFree},
     Networking::WinSock::{
         AF_UNIX, SOCK_STREAM, SOCKADDR, SOCKADDR_UN, SOCKET, WSADATA, WSAStartup, bind,
         closesocket, socket,
+    },
+    Security::{
+        Authorization::{ConvertSidToStringSidW, GetSecurityInfo, SE_FILE_OBJECT},
+        OWNER_SECURITY_INFORMATION,
     },
     Storage::FileSystem::{
         CreateFileW, CreateSymbolicLinkW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
@@ -32,6 +36,11 @@ fn storage_accepts_only_the_private_exact_session_af_unix_leaf() {
     ));
     let handle = open_leaf_handle(&path);
     super::super::set_private_dacl(handle, &sid).expect("set private socket ACL");
+    assert_eq!(
+        socket_owner_sid(handle),
+        sid_string(&sid),
+        "AF_UNIX owner SID"
+    );
     super::super::tree::validate_guest_socket_handle(handle, &sid)
         .expect("accept exact user-owned AF_UNIX socket with private ACL");
     unsafe { CloseHandle(handle) };
@@ -97,6 +106,11 @@ fn socket_validation_rejects_wrong_tag_owner_and_acl() {
     let socket = BoundUnixSocket::new(&path);
     let handle = open_leaf_handle(&path);
     super::super::set_private_dacl(handle, &sid).expect("set private socket ACL");
+    assert_eq!(
+        socket_owner_sid(handle),
+        sid_string(&sid),
+        "AF_UNIX owner SID"
+    );
     let mut wrong_sid = sid.clone();
     let last_sid_byte = wrong_sid.last_mut().expect("non-empty SID");
     *last_sid_byte ^= 0xff;
@@ -116,6 +130,52 @@ fn current_sid() -> Vec<u8> {
     super::super::super::process::current_user_sid()
         .expect("current SID")
         .to_vec()
+}
+
+fn socket_owner_sid(handle: HANDLE) -> String {
+    let mut owner = null_mut();
+    let mut descriptor = null_mut();
+    // SAFETY: the output pointers are writable and the handle identifies the socket leaf.
+    let status = unsafe {
+        GetSecurityInfo(
+            handle,
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            &mut owner,
+            null_mut(),
+            null_mut(),
+            null_mut(),
+            &mut descriptor,
+        )
+    };
+    assert_eq!(status, 0, "query AF_UNIX owner SID");
+    let result = sid_string_from_ptr(owner);
+    unsafe { LocalFree(descriptor.cast()) };
+    result
+}
+
+fn sid_string(sid: &[u8]) -> String {
+    sid_string_from_ptr(sid.as_ptr().cast_mut().cast())
+}
+
+fn sid_string_from_ptr(sid: *mut core::ffi::c_void) -> String {
+    let mut wide = null_mut();
+    assert_ne!(
+        unsafe { ConvertSidToStringSidW(sid, &mut wide) },
+        0,
+        "format SID"
+    );
+    let mut length = 0;
+    unsafe {
+        while *wide.add(length) != 0 {
+            length += 1;
+        }
+        let result = std::ffi::OsString::from_wide(std::slice::from_raw_parts(wide, length))
+            .to_string_lossy()
+            .into_owned();
+        LocalFree(wide.cast());
+        result
+    }
 }
 
 fn session_path(root: &Path) -> PathBuf {
