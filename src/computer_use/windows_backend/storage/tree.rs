@@ -10,14 +10,14 @@ use std::{
 
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, LocalFree},
-    Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT, SetSecurityInfo},
+    Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT},
     Security::{EqualSid, OWNER_SECURITY_INFORMATION},
     Storage::FileSystem::{
         BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ATTRIBUTE_DIRECTORY,
         FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO, FILE_FLAG_BACKUP_SEMANTICS,
         FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
         FILE_SHARE_WRITE, FileAttributeTagInfo, GetFileInformationByHandle,
-        GetFileInformationByHandleEx, OPEN_EXISTING, READ_CONTROL, WRITE_DAC, WRITE_OWNER,
+        GetFileInformationByHandleEx, OPEN_EXISTING, READ_CONTROL, WRITE_DAC,
     },
     System::SystemServices::IO_REPARSE_TAG_AF_UNIX,
 };
@@ -26,6 +26,9 @@ use super::security::{
     preexisting_acl_is_safe_to_lock, preexisting_guest_socket_acl_is_safe,
     private_acl_matches_current_user_and_system, set_private_dacl,
 };
+
+#[path = "tree/ownership.rs"]
+mod ownership;
 
 const MAX_STORAGE_DEPTH: usize = 64;
 const MAX_STORAGE_OBJECTS: usize = 100_000;
@@ -179,73 +182,7 @@ pub(super) fn set_new_guest_socket_owner(
     path: &Path,
     current_sid: &[u8],
 ) -> io::Result<()> {
-    if !is_expected_guest_socket(storage_root, path) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "guest-control socket path is not the exact session leaf",
-        ));
-    }
-    let wide = path
-        .as_os_str()
-        .encode_wide()
-        .chain(Some(0))
-        .collect::<Vec<_>>();
-    // OPEN_REPARSE_POINT ensures ownership is applied to the socket leaf itself.
-    // SAFETY: path is NUL-terminated and requests are limited to inspect and owner changes.
-    let handle = unsafe {
-        CreateFileW(
-            wide.as_ptr(),
-            FILE_READ_ATTRIBUTES | WRITE_OWNER,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            null(),
-            OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-            null_mut(),
-        )
-    };
-    if handle.is_null() || handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
-    }
-    let mut tag = FILE_ATTRIBUTE_TAG_INFO::default();
-    // SAFETY: `tag` is writable and `handle` references the exact leaf itself.
-    let is_af_unix_leaf = unsafe {
-        GetFileInformationByHandleEx(
-            handle,
-            FileAttributeTagInfo,
-            (&mut tag as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
-            std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
-        ) != 0
-            && tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
-            && tag.ReparseTag == IO_REPARSE_TAG_AF_UNIX
-    };
-    let result = if !is_af_unix_leaf {
-        Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "new guest-control leaf is not a Windows AF_UNIX socket",
-        ))
-    } else {
-        // SAFETY: the leaf was just bound by this process; `current_sid` is a
-        // valid user SID and the handle was opened with WRITE_OWNER.
-        let status = unsafe {
-            SetSecurityInfo(
-                handle,
-                SE_FILE_OBJECT,
-                OWNER_SECURITY_INFORMATION,
-                current_sid.as_ptr().cast_mut().cast(),
-                null_mut(),
-                null_mut(),
-                null_mut(),
-            )
-        };
-        if status == 0 {
-            Ok(())
-        } else {
-            Err(io::Error::from_raw_os_error(status as i32))
-        }
-    };
-    // SAFETY: this function owns the handle returned by CreateFileW.
-    unsafe { CloseHandle(handle) };
-    result
+    ownership::set_new_guest_socket_owner(storage_root, path, current_sid)
 }
 
 pub(super) fn validate_guest_socket_handle(handle: HANDLE, current_sid: &[u8]) -> io::Result<()> {
