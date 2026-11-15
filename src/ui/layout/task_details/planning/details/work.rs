@@ -38,54 +38,74 @@ pub(super) fn paint(
             paint_controls(ui, surface, work, board);
             return;
         }
-    } else if work.kind == WorkKind::Feature && plan_confirmation_present {
+    } else if work.kind.starts_task_intent() && plan_confirmation_present {
         // The canonical decision home is the "Review and approve plan" card;
         // point there instead of duplicating the approval surface.
         ui.label(crate::ui::theme::section_heading("Plan approval"));
         ui.label(crate::ui::theme::helper_text(
-            "Approve or request changes on the “Review and approve plan” card in this queue. That card is the single source of truth for this decision.",
+            "Open the “Review and approve plan” card for the next step. It will show whether the plan needs your approval, a review retry, or more information.",
         ));
         ui.add_space(crate::ui::theme::spacing::S);
     } else {
         paint_approval(ui, surface, work);
     }
+    let incomplete_review = if work.kind == WorkKind::TaskGeneration {
+        matching_review_unable_card(surface, work, planning)
+    } else {
+        None
+    };
     task_intent::paint(ui, Some(surface), board, work);
     ui.heading(&work.title);
-    ui.label(super::super::super::action::concise_detail(&work.detail));
+    ui.label(super::super::super::action::concise_detail(
+        if incomplete_review.is_some() {
+            "Independent review incomplete."
+        } else {
+            &work.detail
+        },
+    ));
     ui.add_space(crate::ui::theme::spacing::M);
     ui.label(crate::ui::theme::section_heading("Next step"));
     if work.kind == WorkKind::TaskGeneration {
-        let git_intent_approved = git_intents::paint(ui, surface, work);
-        let can_generate = work
-            .feature_id
-            .as_ref()
-            .is_some_and(|feature_id| surface.feature_approved(feature_id))
-            && matches!(
-                work.status,
-                crate::core::planning_work::WorkStatus::Todo
-                    | crate::core::planning_work::WorkStatus::NeedsAttention
-            )
-            && git_intent_approved;
-        if can_generate {
-            ui.label("The independently approved specification is ready for task generation.");
-            if ui
-                .add_enabled(
-                    !surface.conversation_busy(),
-                    egui::Button::new("Generate tasks").fill(crate::ui::theme::ACTION),
-                )
-                .clicked()
-                && let Some(feature_id) = work.feature_id.as_ref()
-            {
-                surface.dispatch(crate::ui::ApplicationCommand::GenerateTasksForFeature {
-                    work_key: work.key.clone(),
-                    feature_id: feature_id.clone(),
-                });
+        if let Some((root, review_card)) = incomplete_review {
+            ui.label(crate::ui::theme::helper_text(
+                "Your plan is unchanged. Task creation is paused until the review is complete.",
+            ));
+            if ui.button("Open plan review").clicked() {
+                task_intent::navigate_to_child(ui, &root.key, &review_card.key);
             }
         } else {
-            if work.git_intents.is_empty() {
-                ui.label("Approve repository Git intent before generating tasks.");
+            let git_intent_approved = git_intents::paint(ui, surface, work);
+            let can_generate = work
+                .feature_id
+                .as_ref()
+                .is_some_and(|feature_id| surface.feature_approved(feature_id))
+                && matches!(
+                    work.status,
+                    crate::core::planning_work::WorkStatus::Todo
+                        | crate::core::planning_work::WorkStatus::NeedsAttention
+                )
+                && git_intent_approved;
+            if can_generate {
+                ui.label("The independently approved specification is ready for task generation.");
+                if ui
+                    .add_enabled(
+                        !surface.conversation_busy(),
+                        egui::Button::new("Generate tasks").fill(crate::ui::theme::ACTION),
+                    )
+                    .clicked()
+                    && let Some(feature_id) = work.feature_id.as_ref()
+                {
+                    surface.dispatch(crate::ui::ApplicationCommand::GenerateTasksForFeature {
+                        work_key: work.key.clone(),
+                        feature_id: feature_id.clone(),
+                    });
+                }
             } else {
-                ui.label(&work.detail);
+                if work.git_intents.is_empty() {
+                    ui.label("Approve repository Git intent before generating tasks.");
+                } else {
+                    ui.label(&work.detail);
+                }
             }
         }
     } else if work.status == crate::core::planning_work::WorkStatus::InProgress {
@@ -145,6 +165,30 @@ pub(super) fn paint(
         related_task::paint(ui, surface, work, offer);
     }
     paint_controls(ui, surface, work, board);
+}
+
+fn matching_review_unable_card<'a>(
+    surface: &dyn Surface,
+    work: &crate::core::planning_work::Work,
+    planning: &'a [crate::core::planning_work::Work],
+) -> Option<(
+    &'a crate::core::planning_work::Work,
+    &'a crate::core::planning_work::Work,
+)> {
+    let feature_uid = work.feature_uid.as_deref()?;
+    let intent_uid = work.task_intent_uid.as_deref()?;
+    let card = planning.iter().find(|item| {
+        item.kind == crate::core::planning_work::WorkKind::PlanConfirmation
+            && item.feature_uid.as_deref() == Some(feature_uid)
+            && item.task_intent_uid.as_deref() == Some(intent_uid)
+            && plan_confirmation::review_unable_action_for(surface, item)
+    })?;
+    let root = planning.iter().find(|item| {
+        item.uid == intent_uid
+            && item.kind.starts_task_intent()
+            && item.task_intent_root_uid() == Some(item.uid.as_str())
+    })?;
+    Some((root, card))
 }
 
 fn paint_controls(

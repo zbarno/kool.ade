@@ -30,10 +30,21 @@ pub(super) fn paint_approval(
             }
             if !action.ready {
                 ui.label("This plan cannot be confirmed yet. Resolve the readiness blockers in planning.");
-            } else if action.review_verdict.as_ref().is_some_and(|v| !v.pass)
-                && !action.retry_review
+            } else if action.review_verdict.as_ref().is_some_and(|verdict| {
+                verdict.outcome
+                    == Some(crate::harness::prompt_catalog::ReviewOutcomeV1::ReviewUnable)
+            }) {
+                ui.label(if action.retry_review {
+                    "The review could not finish. Retry checks the same approved plan and does not change it."
+                } else {
+                    "The review could not finish, and a retry is not available right now. The plan is unchanged."
+                });
+            } else if action.review_verdict.as_ref().is_some_and(|verdict| {
+                verdict.outcome
+                    == Some(crate::harness::prompt_catalog::ReviewOutcomeV1::BlockingFindings)
+            }) && !action.retry_review
             {
-                ui.label("Independent review found issues. Revise the plan before reconfirming.");
+                ui.label("The independent review found issues. Resolve them before asking for another review.");
             }
             let needs_choice = action
                 .plan_comparison

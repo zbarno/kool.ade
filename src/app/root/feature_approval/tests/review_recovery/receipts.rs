@@ -57,7 +57,7 @@ fn confirmed_plan_can_resume_review_without_replacing_user_receipt() {
     app.screen = Screen::Connected(Box::new(restarted));
     assert_eq!(
         app.feature_actions(None)[0].label(),
-        "Start or retry independent plan review for CHG-004"
+        "Start independent review"
     );
 
     app.approve_feature_from_board("CHG-004");

@@ -23,13 +23,9 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
             }
             task_gate = (
                 crate::core::planning_work::WorkStatus::NeedsAttention,
-                format!(
-                    "Blocked: independent plan review did not complete ({error}). Retry review before task generation."
-                ),
+                "The independent plan review could not finish. Try the review again before creating tasks.".into(),
             );
-            format!(
-                "Independent plan review did not complete: {error}. Task generation remains blocked."
-            )
+            "The independent plan review could not finish. Task creation remains paused.".into()
         }
         Ok(outcome) => {
             let review_error = outcome.review_error.is_some();
@@ -230,7 +226,7 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
                     } else if review_unable {
                         (
                             crate::core::planning_work::WorkStatus::NeedsAttention,
-                            "ReviewUnable: the reviewer could not assess this plan from the available evidence. A bounded retry is available; task generation remains blocked.".into(),
+                            "The independent review could not finish checking this plan. A retry is available; task creation remains paused.".into(),
                         )
                     } else {
                         (
@@ -295,10 +291,7 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
                             "Independent PlanReviewer could not complete a defensible review of {}: {}. Retry is bounded; no task generation is authorized.",
                             outcome.feature_id, limits
                         ));
-                        format!(
-                            "Independent plan review for {} was unable to complete: {}. You can retry the review; task generation remains blocked.",
-                            outcome.feature_id, limits
-                        )
+                        "The independent review could not finish checking this plan. You can retry the review; task creation remains paused.".into()
                     } else {
                         let findings = outcome
                             .verdict
