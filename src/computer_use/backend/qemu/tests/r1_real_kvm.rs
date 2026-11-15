@@ -26,6 +26,8 @@ use crate::computer_use::ComputerResourceLimitsV1;
 
 #[path = "r1_real_kvm/cgroup.rs"]
 mod cgroup;
+#[path = "r1_real_kvm/cleanup.rs"]
+mod cleanup;
 #[path = "r1_real_kvm/host_environment.rs"]
 mod host_environment;
 #[path = "r1_real_kvm/qmp.rs"]
@@ -188,6 +190,10 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
     let (handle, _) = backend
         .prepare(&session, overlay, unix_time_ms()?)
         .map_err(|error| format!("backend prepare: {error:?}"))?;
+    let session_directory = root
+        .join("runtime/sessions")
+        .join(&session.identity.session_id);
+    let session_cgroup = cgroup_root.join(format!("koolade-{}", session.identity.session_id));
     let result = (|| {
         backend
             .boot(&session, &handle, unix_time_ms()?)
@@ -230,9 +236,6 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         backend
             .wait_ready(&session, &handle, Duration::from_secs(120), unix_time_ms()?)
             .map_err(|error| format!("guest readiness: {error:?}"))?;
-        let session_directory = root
-            .join("runtime/sessions")
-            .join(&session.identity.session_id);
         qmp::assert_no_network_device(&session_directory.join("qemu-qmp.sock"))
             .map_err(|error| format!("disabled-network QEMU device graph: {error}"))?;
         host_environment::assert_host_secret_not_inherited(&session_directory)
@@ -564,6 +567,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             result.err().unwrap_or_else(|| "passed".into())
         ));
     }
+    cleanup::assert_released(&session_directory, &session_cgroup, &overlay_root)?;
     result
 }
 
