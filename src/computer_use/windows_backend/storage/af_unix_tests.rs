@@ -309,10 +309,14 @@ impl ShortStorageRoot {
         static NEXT_ROOT: AtomicUsize = AtomicUsize::new(0);
         let local_app_data = super::super::path::local_app_data().expect("Local AppData");
         const ROOT_NAMES: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let current_sid =
+            super::super::super::process::current_user_sid().expect("current user SID");
+        let mut security = super::PrivateDirectorySecurity::new(&current_sid)
+            .expect("private temporary directory security");
         for _ in 0..ROOT_NAMES.len() {
             let index = NEXT_ROOT.fetch_add(1, Ordering::Relaxed) % ROOT_NAMES.len();
             let directory = local_app_data.join(char::from(ROOT_NAMES[index]).to_string());
-            match std::fs::create_dir(&directory) {
+            match super::create_or_lock_directory(&directory, &mut security, &current_sid) {
                 Ok(()) => return Self { path: directory },
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => panic!("create short Local AppData storage root: {error}"),

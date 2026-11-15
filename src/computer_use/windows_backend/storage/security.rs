@@ -28,7 +28,7 @@ pub(super) struct PrivateDirectorySecurity {
 impl PrivateDirectorySecurity {
     pub(super) fn new(current_sid: &[u8]) -> io::Result<Self> {
         let sid_text = sid_string(current_sid)?;
-        let sddl = format!("D:P(A;OICI;FA;;;{sid_text})(A;OICI;FA;;;SY)");
+        let sddl = format!("O:{sid_text}D:P(A;OICI;FA;;;{sid_text})(A;OICI;FA;;;SY)");
         let wide = sddl.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
         let mut descriptor = null_mut();
         // SAFETY: SDDL is NUL-terminated and descriptor is a writable output pointer.
