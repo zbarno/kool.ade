@@ -127,6 +127,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         ComputerOperationV1::ObserveScreen,
         ComputerOperationV1::MouseInput,
         ComputerOperationV1::KeyboardInput,
+        ComputerOperationV1::ReadAccessibility,
         ComputerOperationV1::LaunchAllowedApp,
         ComputerOperationV1::LaunchApprovedStagedTaskApp,
     ]);
@@ -573,6 +574,47 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             .is_ok()
         {
             return Err("human authority remained usable after agent handback".into());
+        }
+
+        if channel.capabilities().accessibility_tree {
+            return Err("real guest unexpectedly advertised accessibility support".into());
+        }
+        let agent_authority = registry
+            .authorize(
+                &session.identity,
+                ComputerActionActorV1::Agent,
+                "implementer/v1",
+                unix_time_ms()?,
+            )
+            .map_err(|error| format!("agent handback authority lookup: {error:?}"))?;
+        let accessibility = action(
+            &session,
+            13,
+            ComputerOperationV1::ReadAccessibility,
+            ComputerActionPayloadV1::ReadAccessibility,
+        );
+        let accessibility_result = agent_authority.execute(
+            &mut channel,
+            &journal,
+            &accessibility,
+            unix_time_ms()?.saturating_add(60_000),
+            unix_time_ms()?,
+        );
+        if accessibility_result
+            != Err(crate::computer_use::guest_protocol::GuestProtocolErrorV1::UnsupportedCapability)
+        {
+            return Err(format!(
+                "live accessibility request was not rejected as unsupported: {accessibility_result:?}"
+            ));
+        }
+        if journal
+            .status_for_sequence(13)
+            .map_err(|error| format!("accessibility journal status: {error:?}"))?
+            != crate::computer_use::guest_protocol::GuestActionJournalStatusV1::NotRecorded
+        {
+            return Err(
+                "unsupported accessibility request was recorded in the action journal".into(),
+            );
         }
 
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
