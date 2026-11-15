@@ -302,7 +302,9 @@ pub(super) struct ShortStorageRoot {
 impl ShortStorageRoot {
     pub(super) fn new() -> Self {
         static NEXT_ROOT: AtomicUsize = AtomicUsize::new(0);
-        let temporary_root = std::env::temp_dir();
+        let temporary_root = std::env::var_os("RUNNER_TEMP")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
         for _ in 0..1024 {
             let name = format!(
                 "k{:x}{:x}",
