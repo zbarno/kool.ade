@@ -15,14 +15,9 @@ use windows_sys::Win32::{
     },
     Storage::FileSystem::{
         CreateFileW, CreateSymbolicLinkW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-        GetLogicalDrives, OPEN_EXISTING, READ_CONTROL,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+        READ_CONTROL,
     },
-};
-
-#[cfg(test)]
-use windows_sys::Win32::Storage::FileSystem::{
-    DDD_EXACT_MATCH_ON_REMOVE, DDD_RAW_TARGET_PATH, DDD_REMOVE_DEFINITION, DefineDosDeviceW,
 };
 
 #[test]
@@ -110,9 +105,6 @@ fn socket_validation_rejects_wrong_tag_owner_and_acl() {
 }
 
 struct ShortStorageRoot {
-    directory: PathBuf,
-    device: Vec<u16>,
-    target: Vec<u16>,
     path: PathBuf,
 }
 
@@ -121,7 +113,6 @@ impl ShortStorageRoot {
         static NEXT_ROOT: AtomicUsize = AtomicUsize::new(0);
         let user_profile = std::env::var_os("USERPROFILE").expect("user profile");
         let user_profile = PathBuf::from(user_profile);
-        let logical_drives = unsafe { GetLogicalDrives() };
         for _ in 0..1024 {
             let name = format!(
                 "k{:x}{:x}",
@@ -130,34 +121,7 @@ impl ShortStorageRoot {
             );
             let directory = user_profile.join(name);
             match std::fs::create_dir(&directory) {
-                Ok(()) => {
-                    for letter in (b'Z'..=b'X').rev() {
-                        let index = u32::from(letter - b'A');
-                        if logical_drives & (1 << index) != 0 {
-                            continue;
-                        }
-                        let device = format!("{}:", letter as char)
-                            .encode_utf16()
-                            .chain(Some(0))
-                            .collect::<Vec<_>>();
-                        let target = format!(r"\??\{}", directory.display())
-                            .encode_utf16()
-                            .chain(Some(0))
-                            .collect::<Vec<_>>();
-                        if unsafe {
-                            DefineDosDeviceW(DDD_RAW_TARGET_PATH, device.as_ptr(), target.as_ptr())
-                        } != 0
-                        {
-                            return Self {
-                                directory,
-                                device,
-                                target,
-                                path: PathBuf::from(format!("{}:\\", letter as char)),
-                            };
-                        }
-                    }
-                    std::fs::remove_dir(&directory).expect("remove unmapped temporary root");
-                }
+                Ok(()) => return Self { path: directory },
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => panic!("create short temporary storage root: {error}"),
             }
@@ -172,14 +136,7 @@ impl ShortStorageRoot {
 
 impl Drop for ShortStorageRoot {
     fn drop(&mut self) {
-        unsafe {
-            DefineDosDeviceW(
-                DDD_RAW_TARGET_PATH | DDD_REMOVE_DEFINITION | DDD_EXACT_MATCH_ON_REMOVE,
-                self.device.as_ptr(),
-                self.target.as_ptr(),
-            );
-        }
-        std::fs::remove_dir_all(&self.directory).expect("remove short temporary storage root");
+        std::fs::remove_dir_all(&self.path).expect("remove short temporary storage root");
     }
 }
 
