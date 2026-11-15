@@ -42,6 +42,20 @@ impl std::fmt::Display for ComputerBackendErrorV1 {
 }
 
 fn unsupported_host_platform_diagnostic(platform: ComputerHostPlatformV1) -> &'static str {
+    #[cfg(target_os = "macos")]
+    if matches!(
+        platform,
+        ComputerHostPlatformV1::MacOsIntel | ComputerHostPlatformV1::MacOsAppleSilicon
+    ) {
+        return crate::computer_use::macos_backend::probe_macos_hvf().diagnostic();
+    }
+    #[cfg(target_os = "windows")]
+    if matches!(
+        platform,
+        ComputerHostPlatformV1::WindowsX64 | ComputerHostPlatformV1::WindowsArm64
+    ) {
+        return crate::computer_use::windows_backend::probe_windows_wpx().diagnostic();
+    }
     if let Some(compatibility) = platform.macos_compatibility() {
         return compatibility.diagnostic();
     }

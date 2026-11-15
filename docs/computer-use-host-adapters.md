@@ -1,8 +1,11 @@
 # Computer Use host adapter design
 
-Status: implementation design. macOS and Windows host virtualization remain
-unavailable. This document records candidate hypervisors and the security
-conditions an adapter must meet before it can be enabled.
+Status: implementation design with offline macOS QEMU/HVF planning and a
+fail-closed Windows AF_UNIX guest-control transport candidate.
+macOS and Windows host virtualization remain unavailable. The launch planner
+does not start QEMU or establish process, resource, or storage containment.
+This document records candidate hypervisors and the security conditions an
+adapter must meet before it can be enabled.
 
 ## Candidate host and guest pairs
 
@@ -52,15 +55,27 @@ line assertion alone.
 
 Guest control and display streams must be private to the current user, use
 bounded I/O timeouts, authenticate the guest boot transcript, and reject
-remote clients. Windows named pipes require an explicit per-user ACL and peer
-verification. Do not expose QMP, VNC, or the guest control channel on a TCP
-listener. File exchange continues through the existing typed, quota-bounded
-grant protocol; the VM must not receive an unrestricted host directory mount.
+remote clients. Windows local sockets require an explicit per-user ACL and
+verification that the peer is the active QEMU process. Do not expose QMP, VNC,
+or the guest control channel on a TCP listener. File exchange continues through
+the existing typed, quota-bounded grant protocol; the VM must not receive an
+unrestricted host directory mount.
 
 ## Platform-specific prerequisites
 
 ### macOS
 
+- The current macOS code produces a fixed, offline QEMU launch plan for the
+  native host architecture: `qemu-system-x86_64` with `q35` on Intel, and
+  `qemu-system-aarch64` with `virt` on Apple silicon. Both plans require HVF,
+  disable guest networking and QEMU defaults, validate CPU/memory inputs, and
+  accept only absolute, restricted-character path strings without QEMU option
+  separators. Unix socket paths are limited to the macOS `sun_path` bound.
+- This planner is not connected to a process launcher or `ComputerBackend`.
+  It does not verify path ownership/symlinks, image architecture/provenance,
+  QEMU binary trust, VM resource enforcement, guest/display socket peer
+  identity, cancellation, or recovery. No plan may be executed until those
+  controls are implemented and reviewed; `release_enabled` remains false.
 - Probe Intel versus Apple silicon host identity and HVF availability
   independently. Keep the backend unavailable if the result is unknown.
 - Use an architecture-matched signed guest image and the existing signed
@@ -83,10 +98,35 @@ grant protocol; the VM must not receive an unrestricted host directory mount.
 - Put each QEMU process in an app-owned Job Object with verified CPU, memory,
   process, and kill-on-close limits. Fail closed if assignment or limits cannot
   be confirmed.
-- Create private per-user named pipes for guest control and display. Reject
-  remote pipe clients and validate the connecting process identity.
+- Keep QEMU's built-in Windows pipe unavailable unless its per-user ACL, remote
+  client rejection, and peer identity are verified. The current transport
+  candidate uses an app-owned AF_UNIX listener and checks the connected peer PID
+  against the active QEMU child.
+- Bind the exact session socket below a private, short per-user path. Validate
+  its AF_UNIX reparse tag, owner, ACL, and path before accepting a connection.
+- Keep VM startup disabled until a pinned, trusted Windows QEMU build passes
+  native client-mode and peer-PID integration checks.
 - Canonicalize all runtime and overlay paths and reject reparse points,
   reserved device names, and paths outside the app-owned data root.
+
+The current #395 Windows slices add a deterministic QEMU/WHPX launch plan,
+resource mapping, protected storage, and an app-owned AF_UNIX listener. The plan
+fixes the guest to WHPX, an x86_64 machine, a qcow2 overlay, one virtio-serial
+control endpoint, and no network or display listener. It caps guest vCPU and RAM
+from the signed session budget and configures Job Object CPU, process-memory, and
+process-count limits. The socket is placed under a short private per-user path
+because Windows AF_UNIX addresses have a fixed path-length limit.
+
+After accept, the listener queries the Windows AF_UNIX peer PID and requires it
+to match the live QEMU child before constructing the guest channel. The socket
+leaf is separately checked for its exact session location, reparse tag, owner,
+and private ACL. Native Windows fixtures cover those checks and the peer-PID
+query. The QEMU launch plan now selects the socket client mode, but the runtime
+gate still fails closed: no pinned, trusted QEMU build has yet proved Windows
+AF_UNIX client behavior end to end. These slices do not start a VM, implement a
+display/input proxy, provide a Windows disk quota, or complete native host
+acceptance. Guest-visible virtual disk capacity is bounded by the session
+policy, but physical qcow2 growth is not a host disk quota.
 
 ## Required deterministic tests
 
@@ -108,5 +148,7 @@ fall back to executing an agent on the host.
 
 - [QEMU supported acceleration frameworks](https://www.qemu.org/docs/master/system/introduction.html)
 - [QEMU Windows Hypervisor Platform backend](https://www.qemu.org/docs/master/system/whpx.html)
+- [QEMU Windows named-pipe behavior](https://www.qemu.org/docs/master/system/qemu-manpage.html)
+- [Microsoft named-pipe security and access rights](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights)
 - [Apple Virtualization framework](https://developer.apple.com/documentation/virtualization)
 - [Apple Virtualization entitlement](https://developer.apple.com/documentation/virtualization/adding-the-virtualization-entitlement-to-your-project)
