@@ -22,7 +22,7 @@ use windows_sys::Win32::{
 
 #[cfg(test)]
 use windows_sys::Win32::Storage::FileSystem::{
-    DDD_EXACT_MATCH_ON_REMOVE, DDD_REMOVE_DEFINITION, DefineDosDeviceW,
+    DDD_EXACT_MATCH_ON_REMOVE, DDD_RAW_TARGET_PATH, DDD_REMOVE_DEFINITION, DefineDosDeviceW,
 };
 
 #[test]
@@ -140,12 +140,14 @@ impl ShortStorageRoot {
                             .encode_utf16()
                             .chain(Some(0))
                             .collect::<Vec<_>>();
-                        let target = directory
-                            .as_os_str()
-                            .encode_wide()
+                        let target = format!(r"\??\{}", directory.display())
+                            .encode_utf16()
                             .chain(Some(0))
                             .collect::<Vec<_>>();
-                        if unsafe { DefineDosDeviceW(0, device.as_ptr(), target.as_ptr()) } != 0 {
+                        if unsafe {
+                            DefineDosDeviceW(DDD_RAW_TARGET_PATH, device.as_ptr(), target.as_ptr())
+                        } != 0
+                        {
                             return Self {
                                 directory,
                                 device,
@@ -172,7 +174,7 @@ impl Drop for ShortStorageRoot {
     fn drop(&mut self) {
         unsafe {
             DefineDosDeviceW(
-                DDD_REMOVE_DEFINITION | DDD_EXACT_MATCH_ON_REMOVE,
+                DDD_RAW_TARGET_PATH | DDD_REMOVE_DEFINITION | DDD_EXACT_MATCH_ON_REMOVE,
                 self.device.as_ptr(),
                 self.target.as_ptr(),
             );
