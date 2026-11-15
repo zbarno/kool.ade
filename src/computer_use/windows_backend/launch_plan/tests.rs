@@ -22,7 +22,7 @@ fn qemu_option_paths_reject_delimiter_injection_and_relative_paths() {
 }
 
 #[test]
-fn session_ids_must_be_canonical_before_becoming_pipe_names() {
+fn session_ids_must_be_canonical_before_becoming_transport_paths() {
     assert!(canonical_session_id("123e4567-e89b-12d3-a456-426614174000"));
     assert!(!canonical_session_id("../control"));
     assert!(!canonical_session_id(
@@ -35,7 +35,9 @@ fn qemu_args_use_whpx_bounded_resources_and_no_network_devices() {
     let args = qemu_args(
         Path::new("C:/private/overlay.qcow2"),
         Path::new("C:/private/session/boot.json"),
-        "koolade-123e4567-e89b-12d3-a456-426614174000-guest-control-v1",
+        Path::new(
+            "C:/private/transport/123e4567-e89b-12d3-a456-426614174000/guest-control-v1.sock",
+        ),
         2,
         1_073_741_824,
     )
@@ -49,7 +51,9 @@ fn qemu_args_use_whpx_bounded_resources_and_no_network_devices() {
     assert!(args.windows(2).any(|w| w == ["-nic", "none"]));
     assert!(!args.iter().any(|arg| arg == "-netdev"));
     assert!(!args.iter().any(|arg| arg.starts_with("tcp")));
-    assert!(args.iter().any(|arg| arg.contains("guest-control-v1")));
+    assert!(args.iter().any(|arg| {
+        arg == "socket,id=guestcontrol,path=C:/private/transport/123e4567-e89b-12d3-a456-426614174000/guest-control-v1.sock,server=off"
+    }));
 }
 
 #[test]
@@ -61,6 +65,9 @@ fn launch_plan_rejects_non_disposable_networked_and_mismatched_disk_inputs() {
         overlay_virtual_size_bytes: 2 * 1024 * 1024 * 1024,
         boot_config: Path::new("/app/state/sessions/session/boot.json"),
         session_directory: Path::new("/app/state/sessions/session"),
+        guest_control_socket: Path::new(
+            "/app/state/transport/123e4567-e89b-12d3-a456-426614174000/guest-control-v1.sock",
+        ),
         session_id: "123e4567-e89b-12d3-a456-426614174000",
         cpu_millis: 2_000,
         memory_bytes: 1024 * MIB,
@@ -114,6 +121,9 @@ fn launch_plan_maps_guest_and_job_limits_from_the_bounded_policy() {
             overlay_virtual_size_bytes: 2 * 1024 * 1024 * 1024,
             boot_config: Path::new("/app/state/sessions/session/boot.json"),
             session_directory: Path::new("/app/state/sessions/session"),
+            guest_control_socket: Path::new(
+                "/app/state/transport/123e4567-e89b-12d3-a456-426614174000/guest-control-v1.sock",
+            ),
             session_id: "123e4567-e89b-12d3-a456-426614174000",
             cpu_millis: 2_000,
             memory_bytes: 1024 * MIB,
@@ -129,8 +139,10 @@ fn launch_plan_maps_guest_and_job_limits_from_the_bounded_policy() {
         (2, 1024 * MIB, 2 * 1024 * 1024 * 1024)
     );
     assert_eq!(
-        plan.control_pipe_name(),
-        "koolade-123e4567-e89b-12d3-a456-426614174000-guest-control-v1"
+        plan.control_socket_path(),
+        Path::new(
+            "/app/state/transport/123e4567-e89b-12d3-a456-426614174000/guest-control-v1.sock"
+        )
     );
     assert!(plan.arguments().iter().any(|arg| arg == "-accel"));
     assert_eq!(

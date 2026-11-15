@@ -55,6 +55,29 @@ fn app_owned_storage_uses_a_protected_per_user_directory_tree() {
     );
 }
 
+/// Boundary: binds the production listener below a private session path,
+/// then validates the resulting AF_UNIX reparse leaf and inherited ACL.
+/// A pure test cannot prove the Windows filesystem and Winsock interaction.
+/// Dependency: native Windows ACL/AF_UNIX APIs; setup under 1s.
+#[test]
+fn guest_control_listener_uses_the_short_private_storage_path() {
+    let temporary = af_unix_tests::ShortStorageRoot::new();
+    let storage = WindowsVmStorage::open_at(temporary.path()).expect("secure storage");
+    let session_id = "123e4567-e89b-12d3-a456-426614174000";
+    let socket_path = storage
+        .guest_control_socket_path(session_id)
+        .expect("short session socket path");
+    assert!(socket_path.is_absolute());
+    assert!(socket_path.to_string_lossy().as_bytes().len() < 108);
+    let listener = storage
+        .bind_guest_control_listener(session_id)
+        .expect("bind validated AF_UNIX listener");
+    let sid = super::super::process::current_user_sid().expect("current SID");
+    super::tree::lock_existing_descendants(&storage.transport_sessions, &sid)
+        .expect("retain the exact private socket leaf");
+    drop(listener);
+}
+
 #[test]
 fn known_folder_lookup_returns_an_absolute_local_app_data_path() {
     let path = super::path::local_app_data().expect("Local AppData known folder");

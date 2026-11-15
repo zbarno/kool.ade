@@ -28,6 +28,9 @@ impl WindowsWpxLaunchPlan {
         let session_directory = storage
             .session_directory(&session.identity.session_id)
             .map_err(|_| WindowsLaunchBlocker::UnsafePath)?;
+        let guest_control_socket = storage
+            .guest_control_socket_path(&session.identity.session_id)
+            .map_err(|_| WindowsLaunchBlocker::UnsafePath)?;
         let budget = &session.policy.resource_budget;
         let plan = Self::build(
             WindowsWpxLaunchInput {
@@ -37,6 +40,7 @@ impl WindowsWpxLaunchPlan {
                 overlay_virtual_size_bytes: overlay.virtual_size_bytes(),
                 boot_config,
                 session_directory: &session_directory,
+                guest_control_socket: &guest_control_socket,
                 session_id: &session.identity.session_id,
                 cpu_millis: budget.cpu_millis,
                 memory_bytes: budget.memory_bytes,

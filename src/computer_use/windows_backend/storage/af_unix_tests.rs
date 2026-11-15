@@ -37,6 +37,14 @@ fn storage_accepts_only_the_private_exact_session_af_unix_leaf() {
         root.path(),
         &path
     ));
+    let short_transport_root = root.path().join("t");
+    let transport_socket = short_transport_root
+        .join("123e4567-e89b-12d3-a456-426614174000")
+        .join("guest-control-v1.sock");
+    assert!(super::super::tree::is_expected_guest_socket(
+        &short_transport_root,
+        &transport_socket
+    ));
     let handle = open_leaf_handle(&path);
     set_socket_owner(handle, &sid);
     assert_eq!(
@@ -287,12 +295,12 @@ fn session_path(root: &Path) -> PathBuf {
     session
 }
 
-struct ShortStorageRoot {
+pub(super) struct ShortStorageRoot {
     path: PathBuf,
 }
 
 impl ShortStorageRoot {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         static NEXT_ROOT: AtomicUsize = AtomicUsize::new(0);
         let user_profile = std::env::var_os("USERPROFILE").expect("user profile");
         let user_profile = PathBuf::from(user_profile);
@@ -312,7 +320,7 @@ impl ShortStorageRoot {
         panic!("unable to allocate a unique short storage root");
     }
 
-    fn path(&self) -> &Path {
+    pub(super) fn path(&self) -> &Path {
         &self.path
     }
 }

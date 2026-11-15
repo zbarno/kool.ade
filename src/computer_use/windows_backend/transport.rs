@@ -1,10 +1,19 @@
-//! Windows guest-control transport gate.
+//! Windows guest-control transport gates.
 //!
 //! QEMU's built-in Windows `pipe` chardev creates its own pipe with a default
 //! security descriptor and does not request `PIPE_REJECT_REMOTE_CLIENTS`.
-//! Therefore this implementation deliberately refuses to connect to it.
+//! Therefore this implementation deliberately refuses to connect to it. An
+//! app-owned AF_UNIX listener now verifies the peer PID, but startup remains
+//! blocked until a trusted QEMU client build passes native integration checks.
 
 use std::io;
+
+#[cfg(windows)]
+#[path = "transport/af_unix.rs"]
+mod af_unix;
+
+#[cfg(windows)]
+pub(crate) use af_unix::WindowsAfUnixListener;
 
 use crate::computer_use::{ComputerGuestChannelV1, backend::GuestChannelIo};
 
@@ -56,6 +65,46 @@ pub(crate) fn require_qemu_pipe_security() -> io::Result<()> {
         io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("QEMU guest pipe is unavailable: {blocker:?}"),
+        )
+    })
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct WindowsQemuAfUnixEvidence {
+    pub(crate) trusted_qemu_build: Option<bool>,
+    pub(crate) qemu_client_mode_verified: Option<bool>,
+    pub(crate) active_child_peer_pid_verified: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum WindowsQemuAfUnixBlocker {
+    TrustedBuildNotPinned,
+    ClientModeNotVerified,
+    PeerPidNotVerified,
+}
+
+pub(crate) fn assess_qemu_af_unix_evidence(
+    evidence: WindowsQemuAfUnixEvidence,
+) -> Result<(), WindowsQemuAfUnixBlocker> {
+    if evidence.trusted_qemu_build != Some(true) {
+        return Err(WindowsQemuAfUnixBlocker::TrustedBuildNotPinned);
+    }
+    if evidence.qemu_client_mode_verified != Some(true) {
+        return Err(WindowsQemuAfUnixBlocker::ClientModeNotVerified);
+    }
+    if evidence.active_child_peer_pid_verified != Some(true) {
+        return Err(WindowsQemuAfUnixBlocker::PeerPidNotVerified);
+    }
+    Ok(())
+}
+
+/// No trusted Windows QEMU build has yet passed native AF_UNIX client tests.
+/// The listener implementation is therefore not permission to start a VM.
+pub(crate) fn require_qemu_af_unix_evidence() -> io::Result<()> {
+    assess_qemu_af_unix_evidence(WindowsQemuAfUnixEvidence::default()).map_err(|blocker| {
+        io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!("Windows QEMU AF_UNIX transport is unavailable: {blocker:?}"),
         )
     })
 }
@@ -127,5 +176,32 @@ mod tests {
         ] {
             assert!(assess_pipe_evidence(missing).is_err());
         }
+    }
+
+    #[test]
+    fn qemu_af_unix_startup_requires_a_trusted_native_client_and_verified_peer_pid() {
+        let complete = WindowsQemuAfUnixEvidence {
+            trusted_qemu_build: Some(true),
+            qemu_client_mode_verified: Some(true),
+            active_child_peer_pid_verified: Some(true),
+        };
+        assert_eq!(assess_qemu_af_unix_evidence(complete), Ok(()));
+        for missing in [
+            WindowsQemuAfUnixEvidence {
+                trusted_qemu_build: None,
+                ..complete
+            },
+            WindowsQemuAfUnixEvidence {
+                qemu_client_mode_verified: None,
+                ..complete
+            },
+            WindowsQemuAfUnixEvidence {
+                active_child_peer_pid_verified: None,
+                ..complete
+            },
+        ] {
+            assert!(assess_qemu_af_unix_evidence(missing).is_err());
+        }
+        assert!(require_qemu_af_unix_evidence().is_err());
     }
 }

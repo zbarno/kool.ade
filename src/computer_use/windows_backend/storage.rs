@@ -36,12 +36,13 @@ use windows_sys::Win32::{
 
 use super::storage_policy::{WindowsStorageFacts, assess_storage_facts, valid_session_id};
 
-const STORAGE_DIRECTORY_PARTS: [&str; 3] = ["Koolade", "ComputerUse", "v1"];
+const STORAGE_DIRECTORY_PARTS: [&str; 2] = ["ComputerUse", "v1"];
 
 pub(crate) struct WindowsVmStorage {
     root: PathBuf,
     sessions: PathBuf,
     overlays: PathBuf,
+    transport_sessions: PathBuf,
 }
 
 impl WindowsVmStorage {
@@ -57,21 +58,27 @@ impl WindowsVmStorage {
         path::validate_directory_chain(local_app_data, &current_sid)?;
 
         let mut security = PrivateDirectorySecurity::new(&current_sid)?;
+        let container = local_app_data.join("Koolade");
+        create_or_lock_directory(&container, &mut security, &current_sid)?;
         let root = STORAGE_DIRECTORY_PARTS
             .iter()
-            .fold(local_app_data.to_path_buf(), |path, component| {
-                path.join(component)
-            });
+            .fold(container.clone(), |path, component| path.join(component));
+        // Create each level explicitly; CreateDirectoryW does not create its
+        // missing parents and the transport path must stay short for AF_UNIX.
+        create_or_lock_directory(&container.join("ComputerUse"), &mut security, &current_sid)?;
         let sessions = root.join("sessions");
         let overlays = root.join("overlays");
-        for path in [&root, &sessions, &overlays] {
+        let transport_sessions = container.join("t");
+        for path in [&root, &sessions, &overlays, &transport_sessions] {
             create_or_lock_directory(path, &mut security, &current_sid)?;
         }
         tree::lock_existing_descendants(&root, &current_sid)?;
+        tree::lock_existing_descendants(&transport_sessions, &current_sid)?;
         Ok(Self {
             root,
             sessions,
             overlays,
+            transport_sessions,
         })
     }
 
@@ -86,6 +93,49 @@ impl WindowsVmStorage {
         validate_directory(&self.sessions, &sid, true, true, true, false)?;
         create_or_lock_directory(&path, &mut security, &sid)?;
         tree::lock_existing_descendants(&path, &sid)?;
+        Ok(path)
+    }
+
+    /// Bind the one AF_UNIX leaf permitted for an active session, then
+    /// revalidate its exact path, reparse tag, owner, and inherited private ACL.
+    pub(crate) fn bind_guest_control_listener(
+        &self,
+        session_id: &str,
+    ) -> io::Result<super::transport::WindowsAfUnixListener> {
+        let session_directory = self.transport_session_directory(session_id)?;
+        let socket_path = session_directory.join("guest-control-v1.sock");
+        if !tree::is_expected_guest_socket(&self.transport_sessions, &socket_path) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "guest-control socket path is not the exact session leaf",
+            ));
+        }
+        let listener = super::transport::WindowsAfUnixListener::bind(&socket_path)?;
+        let current_sid = super::process::current_user_sid()?;
+        if let Err(error) = tree::lock_existing_descendants(&self.transport_sessions, &current_sid)
+        {
+            drop(listener);
+            return Err(error);
+        }
+        Ok(listener)
+    }
+
+    pub(crate) fn guest_control_socket_path(&self, session_id: &str) -> io::Result<PathBuf> {
+        Ok(self
+            .transport_session_directory(session_id)?
+            .join("guest-control-v1.sock"))
+    }
+
+    fn transport_session_directory(&self, session_id: &str) -> io::Result<PathBuf> {
+        if !valid_session_id(session_id) {
+            return Err(invalid_data("session id is not a canonical UUID"));
+        }
+        let sid = super::process::current_user_sid()?;
+        let mut security = PrivateDirectorySecurity::new(&sid)?;
+        validate_directory(&self.transport_sessions, &sid, true, true, true, false)?;
+        let path = self.transport_sessions.join(session_id);
+        create_or_lock_directory(&path, &mut security, &sid)?;
+        tree::lock_existing_descendants(&self.transport_sessions, &sid)?;
         Ok(path)
     }
 

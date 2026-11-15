@@ -1,5 +1,6 @@
 //! Deterministic WHPX command and resource planning. The plan is not enabled
-//! until executable trust, storage/image integration, and pipe security pass.
+//! until executable trust, storage/image integration, and AF_UNIX client
+//! verification pass.
 
 #[cfg(windows)]
 use std::io;
@@ -37,7 +38,7 @@ pub(crate) struct WindowsWpxLaunchPlan {
     executable: PathBuf,
     args: Vec<OsString>,
     job_limits: WindowsVmJobLimits,
-    control_pipe_name: String,
+    control_socket_path: PathBuf,
     vcpus: u16,
     memory_bytes: u64,
     disk_bytes: u64,
@@ -51,6 +52,7 @@ pub(crate) struct WindowsWpxLaunchInput<'a> {
     pub(crate) overlay_virtual_size_bytes: u64,
     pub(crate) boot_config: &'a Path,
     pub(crate) session_directory: &'a Path,
+    pub(crate) guest_control_socket: &'a Path,
     pub(crate) session_id: &'a str,
     pub(crate) cpu_millis: u32,
     pub(crate) memory_bytes: u64,
@@ -93,7 +95,22 @@ impl WindowsWpxLaunchPlan {
         if input.boot_config.parent() != Some(input.session_directory) {
             return Err(WindowsLaunchBlocker::UnsafePath);
         }
-        for path in [input.qemu_executable, input.overlay, input.boot_config] {
+        if input.guest_control_socket.file_name()
+            != Some(std::ffi::OsStr::new("guest-control-v1.sock"))
+            || input
+                .guest_control_socket
+                .parent()
+                .and_then(Path::file_name)
+                != Some(std::ffi::OsStr::new(input.session_id))
+        {
+            return Err(WindowsLaunchBlocker::UnsafePath);
+        }
+        for path in [
+            input.qemu_executable,
+            input.overlay,
+            input.boot_config,
+            input.guest_control_socket,
+        ] {
             path::validate_qemu_path(path)?;
         }
 
@@ -109,11 +126,11 @@ impl WindowsWpxLaunchPlan {
         let job_limits = WindowsVmJobLimits::new(process_memory, cpu_rate, 1)
             .ok_or(WindowsLaunchBlocker::InvalidResourceBudget)?;
 
-        let control_pipe_name = format!("koolade-{}-guest-control-v1", input.session_id);
+        let control_socket_path = input.guest_control_socket.to_path_buf();
         let args = path::qemu_args(
             input.overlay,
             input.boot_config,
-            &control_pipe_name,
+            &control_socket_path,
             vcpus,
             input.memory_bytes,
         )?;
@@ -121,7 +138,7 @@ impl WindowsWpxLaunchPlan {
             executable: input.qemu_executable.to_path_buf(),
             args,
             job_limits,
-            control_pipe_name,
+            control_socket_path,
             vcpus,
             memory_bytes: input.memory_bytes,
             disk_bytes: input.disk_bytes,
@@ -132,8 +149,8 @@ impl WindowsWpxLaunchPlan {
         &self.args
     }
 
-    pub(crate) fn control_pipe_name(&self) -> &str {
-        &self.control_pipe_name
+    pub(crate) fn control_socket_path(&self) -> &Path {
+        &self.control_socket_path
     }
 
     pub(crate) fn resource_summary(&self) -> (u16, u64, u64) {
@@ -162,7 +179,7 @@ impl WindowsWpxLaunchPlan {
 
     #[cfg(windows)]
     pub(crate) fn start(&self) -> io::Result<super::process::WindowsVmProcessJob> {
-        super::transport::require_qemu_pipe_security()?;
+        super::transport::require_qemu_af_unix_evidence()?;
         super::process::WindowsVmProcessJob::spawn(self.command(), self.job_limits)
     }
 }

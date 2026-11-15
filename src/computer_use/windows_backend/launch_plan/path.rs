@@ -7,7 +7,7 @@ use super::WindowsLaunchBlocker;
 pub(super) fn qemu_args(
     overlay: &Path,
     boot_config: &Path,
-    pipe_name: &str,
+    guest_control_socket: &Path,
     vcpus: u16,
     memory_bytes: u64,
 ) -> Result<Vec<OsString>, WindowsLaunchBlocker> {
@@ -26,7 +26,10 @@ pub(super) fn qemu_args(
     );
     let vcpus = format!("cores={vcpus},threads=1,sockets=1");
     let memory = memory_bytes.to_string();
-    let chardev = format!("pipe,id=guestcontrol,path={pipe_name}");
+    let chardev = format!(
+        "socket,id=guestcontrol,path={},server=off",
+        qemu_option_path(guest_control_socket)?
+    );
     let serial = "virtserialport,chardev=guestcontrol,name=org.koolade.computer-control.v1";
     Ok([
         "-no-user-config",
