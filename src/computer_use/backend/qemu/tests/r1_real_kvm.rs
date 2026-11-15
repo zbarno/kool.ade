@@ -332,6 +332,14 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             return Err("Chromium launch returned an empty guest frame".into());
         }
 
+        let idle_cpu_before = performance::read_cpu_usage_usec(&session_cgroup)?;
+        thread::sleep(Duration::from_secs(1));
+        idle_memory_bytes = performance::read_cgroup_value(&session_cgroup, "memory.current")?;
+        idle_cpu_usec =
+            performance::read_cpu_usage_usec(&session_cgroup)?.saturating_sub(idle_cpu_before);
+
+        // Capture the interaction target after the idle measurement. An old
+        // frame must not be reused for user input after a slow measurement.
         let observe = action(
             &session,
             2,
@@ -359,12 +367,6 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         {
             return Err("authenticated guest screenshot is invalid or stale".into());
         }
-
-        let idle_cpu_before = performance::read_cpu_usage_usec(&session_cgroup)?;
-        thread::sleep(Duration::from_secs(1));
-        idle_memory_bytes = performance::read_cgroup_value(&session_cgroup, "memory.current")?;
-        idle_cpu_usec =
-            performance::read_cpu_usage_usec(&session_cgroup)?.saturating_sub(idle_cpu_before);
 
         let window = observation
             .windows
@@ -395,7 +397,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
                 button: MouseButtonV1::Primary,
             },
         );
-        authority
+        let click_result = authority
             .execute(
                 &mut channel,
                 &journal,
@@ -404,6 +406,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
                 unix_time_ms()?,
             )
             .map_err(|error| format!("real guest mouse click: {error:?}"))?;
+        require_guest_action_completed("real guest mouse click", &click_result.reply.result)?;
         let mut input_observation = observe_frame(&authority, &mut channel, &journal, &session, 4)?;
         let focus_address = action(
             &session,
@@ -418,7 +421,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
                 observation_revision: input_observation.observation_revision,
             },
         );
-        authority
+        let focus_result = authority
             .execute(
                 &mut channel,
                 &journal,
@@ -427,6 +430,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
                 unix_time_ms()?,
             )
             .map_err(|error| format!("real guest keyboard shortcut: {error:?}"))?;
+        require_guest_action_completed("real guest keyboard shortcut", &focus_result.reply.result)?;
         input_observation = observe_frame(&authority, &mut channel, &journal, &session, 6)?;
         let address = action(
             &session,
@@ -438,7 +442,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
                 observation_revision: input_observation.observation_revision,
             },
         );
-        authority
+        let type_result = authority
             .execute(
                 &mut channel,
                 &journal,
@@ -447,6 +451,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
                 unix_time_ms()?,
             )
             .map_err(|error| format!("real guest text input: {error:?}"))?;
+        require_guest_action_completed("real guest text input", &type_result.reply.result)?;
         input_observation = observe_frame(&authority, &mut channel, &journal, &session, 8)?;
         let enter = action(
             &session,
@@ -458,7 +463,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
                 observation_revision: input_observation.observation_revision,
             },
         );
-        authority
+        let enter_result = authority
             .execute(
                 &mut channel,
                 &journal,
@@ -467,6 +472,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
                 unix_time_ms()?,
             )
             .map_err(|error| format!("real guest Enter key: {error:?}"))?;
+        require_guest_action_completed("real guest Enter key", &enter_result.reply.result)?;
         let input_frame = observe_frame(&authority, &mut channel, &journal, &session, 10)?;
         if input_frame.screenshot_sha256 == observation.screenshot_sha256 {
             return Err("real guest mouse and keyboard input did not change the screen".into());
@@ -625,6 +631,17 @@ fn action(
         operation,
         payload,
     )
+}
+
+fn require_guest_action_completed(
+    name: &str,
+    result: &crate::computer_use::guest_protocol::GuestOperationResultV1,
+) -> Result<(), String> {
+    if *result == crate::computer_use::guest_protocol::GuestOperationResultV1::Completed {
+        Ok(())
+    } else {
+        Err(format!("{name} returned {result:?}"))
+    }
 }
 
 fn observe_frame(
