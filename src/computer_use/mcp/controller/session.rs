@@ -210,19 +210,24 @@ impl ComputerUseMcpOperationsV1 for ComputerUseMcpControllerV1 {
     }
 }
 
-fn internet_research_available(role_id: &str, companion_protocol_version: u16) -> bool {
-    role_id != crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_ROLE_V1
+// R2 remains unavailable until the integrated real-VM public-network,
+// metadata/private-address denial, and proxy-bypass matrix is accepted in #392.
+const INTERNET_RESEARCH_R2_RELEASE_ENABLED_V1: bool = false;
+
+pub(super) fn internet_research_available(role_id: &str, companion_protocol_version: u16) -> bool {
+    INTERNET_RESEARCH_R2_RELEASE_ENABLED_V1
+        && role_id != crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_ROLE_V1
         && companion_protocol_version >= 2
 }
 
 #[cfg(test)]
 #[test]
-fn runtime_qa_consent_never_offers_network_escalation() {
+fn internet_research_is_not_offered_before_its_real_vm_release_gate() {
     assert!(!internet_research_available(
         crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_ROLE_V1,
         2
     ));
-    assert!(internet_research_available("implementer/v1", 2));
+    assert!(!internet_research_available("implementer/v1", 2));
     assert!(!internet_research_available("implementer/v1", 1));
 }
 
