@@ -83,7 +83,7 @@ fn validate_session_chardevs(
     chardevs: &[serde_json::Value],
     session_directory: &Path,
 ) -> Result<(), String> {
-    let expected = BTreeSet::from([
+    let mut expected = vec![
         (
             "compat_monitor1",
             format!(
@@ -106,7 +106,8 @@ fn validate_session_chardevs(
             ),
         ),
         ("serial0", "file".to_owned()),
-    ]);
+    ];
+    expected.sort_unstable();
     let actual = chardevs
         .iter()
         .map(|entry| {
@@ -122,7 +123,9 @@ fn validate_session_chardevs(
                     .to_owned(),
             ))
         })
-        .collect::<Result<BTreeSet<_>, String>>()?;
+        .collect::<Result<Vec<_>, String>>()?;
+    let mut actual = actual;
+    actual.sort_unstable();
     if actual != expected {
         return Err(format!(
             "QEMU character-device graph has unexpected or missing host endpoints: {actual:?}"
@@ -439,6 +442,32 @@ mod tests {
                 "frontend-open": true
             }),
         ];
+        assert!(validate_session_chardevs(&graph, &directory).is_err());
+    }
+
+    #[test]
+    fn character_device_graph_rejects_duplicate_endpoints() {
+        let directory = PathBuf::from("/private/session");
+        let graph = [
+            (
+                "compat_monitor1",
+                "unix:/private/session/qemu-qmp.sock,server=on",
+            ),
+            (
+                "guestcontrol",
+                "unix:/private/session/guest-control.sock,server=on",
+            ),
+            (
+                "compat_monitor0",
+                "disconnected:unix:/private/session/qemu-monitor.sock,server=on",
+            ),
+            ("serial0", "file"),
+            (
+                "guestcontrol",
+                "unix:/private/session/guest-control.sock,server=on",
+            ),
+        ]
+        .map(|(label, filename)| serde_json::json!({"label": label, "filename": filename}));
         assert!(validate_session_chardevs(&graph, &directory).is_err());
     }
 }
