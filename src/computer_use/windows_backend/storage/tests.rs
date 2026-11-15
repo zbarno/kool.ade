@@ -68,7 +68,7 @@ fn guest_control_listener_uses_the_short_private_storage_path() {
         .guest_control_socket_path(session_id)
         .expect("short session socket path");
     assert!(socket_path.is_absolute());
-    assert!(socket_path.to_string_lossy().as_bytes().len() < 108);
+    assert!(socket_path.to_string_lossy().len() < 108);
     let listener = storage
         .bind_guest_control_listener(session_id)
         .expect("bind validated AF_UNIX listener");

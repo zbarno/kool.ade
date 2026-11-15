@@ -17,8 +17,10 @@ fn peer_pid_ioctl_matches_the_connected_windows_af_unix_client() {
     assert_ne!(client, INVALID_SOCKET);
     let client = SocketHandle(client);
     let path = root.to_str().expect("UTF-8 short test path");
-    let mut address = SOCKADDR_UN::default();
-    address.sun_family = AF_UNIX;
+    let mut address = SOCKADDR_UN {
+        sun_family: AF_UNIX,
+        ..Default::default()
+    };
     for (slot, byte) in address.sun_path.iter_mut().zip(path.as_bytes()) {
         *slot = *byte as i8;
     }

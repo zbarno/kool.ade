@@ -43,7 +43,7 @@ impl WindowsAfUnixListener {
         let path = path
             .to_str()
             .ok_or_else(|| invalid_input("AF_UNIX path is not valid UTF-8"))?;
-        if !Path::new(path).is_absolute() || path.as_bytes().len() >= 108 || path.contains('\0') {
+        if !Path::new(path).is_absolute() || path.len() >= 108 || path.contains('\0') {
             return Err(invalid_input("AF_UNIX path is not an absolute short path"));
         }
 
@@ -53,8 +53,10 @@ impl WindowsAfUnixListener {
             return Err(last_winsock_error());
         }
         let socket = SocketHandle(socket);
-        let mut address = SOCKADDR_UN::default();
-        address.sun_family = AF_UNIX;
+        let mut address = SOCKADDR_UN {
+            sun_family: AF_UNIX,
+            ..Default::default()
+        };
         for (slot, byte) in address.sun_path.iter_mut().zip(path.as_bytes()) {
             *slot = *byte as i8;
         }
