@@ -88,7 +88,10 @@ pub(super) fn validate_directory_chain(path: &Path, current_sid: &[u8]) -> io::R
                         "Local AppData must be on a fixed local volume",
                     ));
                 }
-                super::validate_directory(&current, current_sid, false, false, false, true)
+                // A volume root commonly grants broad directory creation
+                // rights by design. Validate that it is a fixed local volume,
+                // then enforce the ACL policy on each directory below it.
+                super::validate_directory(&current, current_sid, false, false, false, false)
                     .map_err(|error| component_validation_error(component_index, error))?;
             }
             Component::Normal(_) => {
