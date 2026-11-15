@@ -22,12 +22,14 @@ pub(crate) struct WindowsWpxReadiness {
 }
 
 #[cfg(any(target_os = "windows", test))]
+#[allow(dead_code)] // Kept fail-closed until a fully contained backend consumes these plans.
 mod launch_plan;
 #[cfg(target_os = "windows")]
 mod storage;
 #[cfg(any(target_os = "windows", test))]
 mod storage_policy;
 #[cfg(any(target_os = "windows", test))]
+#[allow(dead_code)] // Transport evidence stays disconnected until native pipe security is proven.
 mod transport;
 
 impl WindowsWpxReadiness {
