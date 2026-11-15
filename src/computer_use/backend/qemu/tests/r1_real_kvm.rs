@@ -5,7 +5,7 @@ use std::{
     os::unix::net::UnixStream,
     path::Path,
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crate::computer_use::{
@@ -30,6 +30,8 @@ mod cgroup;
 mod cleanup;
 #[path = "r1_real_kvm/host_environment.rs"]
 mod host_environment;
+#[path = "r1_real_kvm/performance.rs"]
+mod performance;
 #[path = "r1_real_kvm/qmp.rs"]
 mod qmp;
 #[path = "r1_real_kvm/staged_artifact.rs"]
@@ -93,6 +95,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         .map_err(|error| format!("catalog floor: {error}"))?;
     let trust = application_guest_image_manifest_trust_v1()
         .map_err(|error| format!("pinned image trust: {error}"))?;
+    let image_download_started = Instant::now();
     let image = cache
         .download_approved_catalog_release(
             MANIFEST,
@@ -102,6 +105,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             &TestImageApproval,
         )
         .map_err(|error| format!("approved image download and verification: {error}"))?;
+    let image_download_ms = image_download_started.elapsed().as_millis();
 
     // Start the short-lived session budget only after the potentially slow
     // image download, otherwise the guest test expires before overlay setup.
@@ -171,6 +175,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
     fs::create_dir(&overlay_root).map_err(|error| error.to_string())?;
     let qemu_tool =
         probe_host_qemu_image_tool().map_err(|error| format!("qemu-img probe: {error:?}"))?;
+    let provisioning_started = Instant::now();
     let overlay = create_guest_image_overlay(
         &cache,
         GuestImageOverlayRequestV1 {
@@ -194,6 +199,11 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         .join("runtime/sessions")
         .join(&session.identity.session_id);
     let session_cgroup = cgroup_root.join(format!("koolade-{}", session.identity.session_id));
+    let mut provisioning_ms = 0;
+    let mut screen_observation_ms = 0;
+    let mut idle_memory_bytes = 0;
+    let mut idle_cpu_usec = 0;
+    let mut peak_memory_bytes = 0;
     let result = (|| {
         backend
             .boot(&session, &handle, unix_time_ms()?)
@@ -236,6 +246,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         backend
             .wait_ready(&session, &handle, Duration::from_secs(120), unix_time_ms()?)
             .map_err(|error| format!("guest readiness: {error:?}"))?;
+        provisioning_ms = provisioning_started.elapsed().as_millis();
         qmp::assert_no_network_device(&session_directory.join("qemu-qmp.sock"))
             .map_err(|error| format!("disabled-network QEMU device graph: {error}"))?;
         host_environment::assert_host_secret_not_inherited(&session_directory)
@@ -317,6 +328,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             ComputerOperationV1::ObserveScreen,
             ComputerActionPayloadV1::ObserveScreen,
         );
+        let screen_observation_started = Instant::now();
         let observation = authority
             .execute(
                 &mut channel,
@@ -328,6 +340,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             .map_err(|error| format!("guest screenshot action: {error:?}"))?
             .observation
             .ok_or("screenshot action returned no guest frame")?;
+        screen_observation_ms = screen_observation_started.elapsed().as_millis();
         if observation.session_id != session.identity.session_id
             || observation.observation_revision <= launch_frame.observation_revision
             || observation.width_px == 0
@@ -336,6 +349,12 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         {
             return Err("authenticated guest screenshot is invalid or stale".into());
         }
+
+        let idle_cpu_before = performance::read_cpu_usage_usec(&session_cgroup)?;
+        thread::sleep(Duration::from_secs(1));
+        idle_memory_bytes = performance::read_cgroup_value(&session_cgroup, "memory.current")?;
+        idle_cpu_usec =
+            performance::read_cpu_usage_usec(&session_cgroup)?.saturating_sub(idle_cpu_before);
 
         let window = observation
             .windows
@@ -548,17 +567,25 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
                 Err(error) => return Err(format!("QEMU display stream: {error:?}")),
             }
         };
+        peak_memory_bytes = performance::read_cgroup_value(&session_cgroup, "memory.peak")?;
         println!(
-            "R1 real KVM evidence: image={} companion_protocol={} guest_frame={}x{} display_frame={}x{}",
+            "R1 real KVM evidence: image={} companion_protocol={} guest_frame={}x{} display_frame={}x{} image_acquire_ms={} provisioning_ms={} screen_observation_ms={} idle_sample_window_ms=1000 idle_memory_bytes={} idle_cpu_delta_usec={} session_peak_memory_bytes={}",
             image.entry().image_digest,
             image.entry().companion_protocol_version,
             observation.width_px,
             observation.height_px,
             display_frame.width,
             display_frame.height,
+            image_download_ms,
+            provisioning_ms,
+            screen_observation_ms,
+            idle_memory_bytes,
+            idle_cpu_usec,
+            peak_memory_bytes,
         );
         Ok(())
     })();
+    let cleanup_started = Instant::now();
     let _ = backend.stop(&session, &handle, unix_time_ms()?);
     let cleanup = backend.release(&session, &handle, unix_time_ms()?);
     if let Err(error) = cleanup {
@@ -568,6 +595,10 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         ));
     }
     cleanup::assert_released(&session_directory, &session_cgroup, &overlay_root)?;
+    println!(
+        "R1 real KVM cleanup evidence: cleanup_ms={}",
+        cleanup_started.elapsed().as_millis()
+    );
     result
 }
 
