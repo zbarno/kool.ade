@@ -9,6 +9,9 @@ use crate::computer_use::{
     },
 };
 
+#[path = "tests/release_gates.rs"]
+mod release_gates;
+
 fn caller() -> ComputerUseCallerV1 {
     ComputerUseCallerV1 {
         identity: ComputerIdentityV1 {
