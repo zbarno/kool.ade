@@ -13,9 +13,9 @@ use windows_sys::Win32::{
         closesocket, socket,
     },
     Security::{
-        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL_SIZE_INFORMATION, AclSizeInformation,
+        ACL_SIZE_INFORMATION, AclSizeInformation,
         Authorization::{ConvertSidToStringSidW, GetSecurityInfo, SE_FILE_OBJECT, SetSecurityInfo},
-        DACL_SECURITY_INFORMATION, GetAce, GetAclInformation, GetSecurityDescriptorDacl,
+        DACL_SECURITY_INFORMATION, GetAclInformation, GetSecurityDescriptorDacl,
         OWNER_SECURITY_INFORMATION,
     },
     Storage::FileSystem::{
@@ -212,32 +212,8 @@ fn socket_acl_summary(handle: HANDLE) -> String {
         unsafe { LocalFree(descriptor.cast()) };
         return "missing or invalid DACL".to_owned();
     }
-    let mut entries = Vec::new();
-    for index in 0..info.AceCount {
-        let mut ace = null_mut();
-        if unsafe { GetAce(acl, index, &mut ace) } == 0 || ace.is_null() {
-            entries.push(format!("ACE {index}: unreadable"));
-            continue;
-        }
-        let header = unsafe { &*ace.cast::<ACE_HEADER>() };
-        if header.AceType != 0 {
-            entries.push(format!(
-                "ACE {index}: type={} flags={:#x}",
-                header.AceType, header.AceFlags
-            ));
-            continue;
-        }
-        let allowed = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
-        let sid = unsafe { ace.cast::<u8>().add(8).cast::<core::ffi::c_void>() };
-        entries.push(format!(
-            "ACE {index}: flags={:#x} mask={:#x} sid={}",
-            header.AceFlags,
-            allowed.Mask,
-            sid_string_from_ptr(sid)
-        ));
-    }
     unsafe { LocalFree(descriptor.cast()) };
-    format!("count={} [{}]", info.AceCount, entries.join("; "))
+    format!("count={}", info.AceCount)
 }
 
 fn set_socket_owner(handle: HANDLE, sid: &[u8]) {
