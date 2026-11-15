@@ -153,7 +153,7 @@ fn lock_handle(
     Ok(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0)
 }
 
-fn is_expected_guest_socket(storage_root: &Path, path: &Path) -> bool {
+pub(super) fn is_expected_guest_socket(storage_root: &Path, path: &Path) -> bool {
     let sessions = storage_root.join("sessions");
     let Some(session_dir) = path.parent() else {
         return false;

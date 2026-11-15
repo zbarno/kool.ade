@@ -23,12 +23,18 @@ use windows_sys::Win32::{
 fn storage_accepts_only_the_private_exact_session_af_unix_leaf() {
     let root = ShortStorageRoot::new();
     let session = session_path(root.path());
-    let socket = BoundUnixSocket::new(&session.join("guest-control-v1.sock"));
-    let sid = super::super::super::process::current_user_sid()
-        .expect("current SID")
-        .to_vec();
-    super::super::tree::lock_existing_descendants(root.path(), &sid)
+    let path = session.join("guest-control-v1.sock");
+    let socket = BoundUnixSocket::new(&path);
+    let sid = current_sid();
+    assert!(super::super::tree::is_expected_guest_socket(
+        root.path(),
+        &path
+    ));
+    let handle = open_leaf_handle(&path);
+    super::super::set_private_dacl(handle, &sid).expect("set private socket ACL");
+    super::super::tree::validate_guest_socket_handle(handle, &sid)
         .expect("accept exact user-owned AF_UNIX socket with private ACL");
+    unsafe { CloseHandle(handle) };
     drop(socket);
 }
 
@@ -43,7 +49,7 @@ fn storage_rejects_af_unix_socket_with_wrong_name_or_ancestor() {
         std::fs::create_dir_all(path.parent().expect("socket parent")).expect("parents");
         let socket = BoundUnixSocket::new(&path);
         assert!(
-            super::super::tree::lock_existing_descendants(root.path(), &current_sid()).is_err(),
+            !super::super::tree::is_expected_guest_socket(root.path(), &path),
             "{relative}"
         );
         drop(socket);
@@ -76,7 +82,9 @@ fn socket_validation_rejects_wrong_tag_owner_and_acl() {
         unsafe { CreateSymbolicLinkW(wide_link.as_ptr(), wide_target.as_ptr(), 2) },
         "create unprivileged file symlink fixture"
     );
-    assert!(super::super::tree::lock_existing_descendants(root.path(), &sid).is_err());
+    let handle = open_leaf_handle(&path);
+    assert!(super::super::tree::validate_guest_socket_handle(handle, &sid).is_err());
+    unsafe { CloseHandle(handle) };
     std::fs::remove_file(&path).expect("remove symbolic-link fixture");
 
     // A regular file also fails the exact socket-tag validator.
@@ -88,14 +96,19 @@ fn socket_validation_rejects_wrong_tag_owner_and_acl() {
 
     let socket = BoundUnixSocket::new(&path);
     let handle = open_leaf_handle(&path);
+    super::super::set_private_dacl(handle, &sid).expect("set private socket ACL");
     let mut wrong_sid = sid.clone();
     let last_sid_byte = wrong_sid.last_mut().expect("non-empty SID");
     *last_sid_byte ^= 0xff;
     assert!(super::super::tree::validate_guest_socket_handle(handle, &wrong_sid).is_err());
+    super::super::tree::validate_guest_socket_handle(handle, &sid)
+        .expect("accept current user socket owner and private ACL");
     unsafe { CloseHandle(handle) };
 
     super::set_world_access_dacl(&path);
-    assert!(super::super::tree::lock_existing_descendants(root.path(), &sid).is_err());
+    let handle = open_leaf_handle(&path);
+    assert!(super::super::tree::validate_guest_socket_handle(handle, &sid).is_err());
+    unsafe { CloseHandle(handle) };
     drop(socket);
 }
 
