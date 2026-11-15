@@ -54,6 +54,83 @@ pub(super) fn assert_approved_pci_devices(path: &Path) -> Result<(), String> {
     validate_approved_pci_devices(buses)
 }
 
+/// Require the live character-device graph to expose only the approved
+/// session-local QMP/HMP/control sockets and diagnostic serial endpoint. This
+/// catches unexpected host serial, pipe, file, or socket backends added by QEMU.
+pub(super) fn assert_only_session_chardevs(
+    path: &Path,
+    session_directory: &Path,
+) -> Result<(), String> {
+    let stream = UnixStream::connect(path).map_err(|error| error.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| error.to_string())?;
+    let mut reader = BufReader::new(stream);
+    let greeting = read_json_line(&mut reader)?;
+    if greeting.get("QMP").is_none() {
+        return Err("QEMU did not provide a QMP greeting".into());
+    }
+    execute(&mut reader, "qmp_capabilities", 1)?;
+    let chardevs = execute(&mut reader, "query-chardev", 2)?;
+    let chardevs = chardevs
+        .get("return")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "QMP query-chardev returned no character-device graph".to_owned())?;
+    validate_session_chardevs(chardevs, session_directory)
+}
+
+fn validate_session_chardevs(
+    chardevs: &[serde_json::Value],
+    session_directory: &Path,
+) -> Result<(), String> {
+    let expected = BTreeSet::from([
+        (
+            "compat_monitor1",
+            format!(
+                "unix:{}/qemu-qmp.sock,server=on",
+                session_directory.display()
+            ),
+        ),
+        (
+            "guestcontrol",
+            format!(
+                "unix:{}/guest-control.sock,server=on",
+                session_directory.display()
+            ),
+        ),
+        (
+            "compat_monitor0",
+            format!(
+                "disconnected:unix:{}/qemu-monitor.sock,server=on",
+                session_directory.display()
+            ),
+        ),
+        ("serial0", "file".to_owned()),
+    ]);
+    let actual = chardevs
+        .iter()
+        .map(|entry| {
+            Ok((
+                entry
+                    .get("label")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| "QMP character device has no label".to_owned())?,
+                entry
+                    .get("filename")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| "QMP character device has no filename".to_owned())?
+                    .to_owned(),
+            ))
+        })
+        .collect::<Result<BTreeSet<_>, String>>()?;
+    if actual != expected {
+        return Err(format!(
+            "QEMU character-device graph has unexpected or missing host endpoints: {actual:?}"
+        ));
+    }
+    Ok(())
+}
+
 fn validate_approved_pci_devices(buses: &[serde_json::Value]) -> Result<(), String> {
     let actual = pci_fingerprints(buses)?;
     let mut expected = vec![
@@ -308,5 +385,60 @@ mod tests {
             }
         });
         assert!(validate_block_paths(&graph, &allowed).is_err());
+    }
+
+    #[test]
+    fn character_device_graph_allows_only_session_scoped_endpoints() {
+        let directory = PathBuf::from("/private/session");
+        let graph = [
+            (
+                "compat_monitor1",
+                "unix:/private/session/qemu-qmp.sock,server=on",
+            ),
+            (
+                "guestcontrol",
+                "unix:/private/session/guest-control.sock,server=on",
+            ),
+            (
+                "compat_monitor0",
+                "disconnected:unix:/private/session/qemu-monitor.sock,server=on",
+            ),
+            ("serial0", "file"),
+        ]
+        .map(|(label, filename)| serde_json::json!({"label": label, "filename": filename}));
+        assert!(validate_session_chardevs(&graph, &directory).is_ok());
+    }
+
+    #[test]
+    fn character_device_graph_rejects_unapproved_host_endpoints() {
+        let directory = PathBuf::from("/private/session");
+        let graph = [
+            (
+                "compat_monitor1",
+                "unix:/private/session/qemu-qmp.sock,server=on",
+            ),
+            (
+                "guestcontrol",
+                "unix:/private/session/guest-control.sock,server=on",
+            ),
+            (
+                "compat_monitor0",
+                "disconnected:unix:/private/session/qemu-monitor.sock,server=on",
+            ),
+            ("serial0", "file"),
+        ]
+        .map(|(label, filename)| serde_json::json!({"label": label, "filename": filename}));
+        let graph = [
+            graph[0].clone(),
+            graph[1].clone(),
+            graph[2].clone(),
+            graph[3].clone(),
+            serde_json::json!({
+                "label": "extra-host-serial",
+                "filename": "file:/etc/shadow",
+                "frontend-open": true
+            }),
+        ];
+        assert!(validate_session_chardevs(&graph, &directory).is_err());
     }
 }

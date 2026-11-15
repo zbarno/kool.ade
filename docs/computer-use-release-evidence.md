@@ -118,6 +118,15 @@ image. This verifies that those input actions complete on the real guest; it
 does not establish the complete seeded-defect QA repair/rebuild journey or
 live viewer usability.
 
+At the follow-up chardev-isolation revision, the same host passed an additional
+live QMP `query-chardev` check against the published generation 19 guest. The
+check requires the QMP and HMP monitors and authenticated guest-control socket
+to use their exact session-local Unix socket paths, permits the test-only
+diagnostic serial endpoint, and rejects missing or additional character
+devices. The real-KVM acceptance passed in 48.71 seconds; both the exact
+allowlist and an injected unapproved host endpoint passed their focused parser
+tests. This does not complete the broader guest/host isolation matrix.
+
 The official real-KVM workflow is manually dispatched on protected `main` and
 requires that runner label. A run with `require_kvm_host=false` is explicitly
 not acceptance evidence. The owner-operated usability walkthrough is not a
