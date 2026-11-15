@@ -106,6 +106,18 @@ delegated cgroup and left no session overlay in the temporary overlay
 directory. This establishes repeatability for the cleanup assertion on one
 host; it is not a resource-exhaustion stress test or a multi-host result.
 
+On 2026-11-15, a follow-up to this evidence made the real-KVM interaction
+assertions fail closed on non-completed guest replies. It moves the one-second
+idle sample before the interaction frame is captured, then requires the guest
+to accept the mouse click, Ctrl+L shortcut, typed local data URL, and Enter
+key; the screenshot digest must change. An initial run exposed that the older
+ordering reused a stale frame after the idle sample and the test did not check
+the guest's `StaleObservation` reply. The corrected acceptance passed on the
+same Linux KVM host in 52.52 seconds against the published generation 19
+image. This verifies that those input actions complete on the real guest; it
+does not establish the complete seeded-defect QA repair/rebuild journey or
+live viewer usability.
+
 The official real-KVM workflow is manually dispatched on protected `main` and
 requires that runner label. A run with `require_kvm_host=false` is explicitly
 not acceptance evidence. The owner-operated usability walkthrough is not a
