@@ -23,7 +23,8 @@ use windows_sys::Win32::{
 };
 
 use super::security::{
-    preexisting_acl_is_safe_to_lock, private_acl_matches_current_user_and_system, set_private_dacl,
+    preexisting_acl_is_safe_to_lock, preexisting_guest_socket_acl_is_safe,
+    private_acl_matches_current_user_and_system, set_private_dacl,
 };
 
 const MAX_STORAGE_DEPTH: usize = 64;
@@ -215,7 +216,7 @@ pub(super) fn validate_guest_socket_handle(handle: HANDLE, current_sid: &[u8]) -
             "guest-control socket is not owned by the current user",
         ));
     }
-    if !preexisting_acl_is_safe_to_lock(handle, current_sid)? {
+    if !preexisting_guest_socket_acl_is_safe(handle, current_sid)? {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "guest-control socket ACL is not private to the current user and SYSTEM",

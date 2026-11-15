@@ -45,7 +45,7 @@ fn storage_accepts_only_the_private_exact_session_af_unix_leaf() {
         "AF_UNIX owner SID"
     );
     assert!(
-        super::super::security::preexisting_acl_is_safe_to_lock(handle, &sid)
+        super::super::security::preexisting_guest_socket_acl_is_safe(handle, &sid)
             .expect("validate socket ACL"),
         "AF_UNIX ACL: {}",
         socket_acl_summary(handle)
@@ -120,7 +120,7 @@ fn socket_validation_rejects_wrong_tag_owner_and_acl() {
         "AF_UNIX owner SID"
     );
     assert!(
-        super::super::security::preexisting_acl_is_safe_to_lock(handle, &sid)
+        super::super::security::preexisting_guest_socket_acl_is_safe(handle, &sid)
             .expect("validate socket ACL"),
         "AF_UNIX ACL: {}",
         socket_acl_summary(handle)

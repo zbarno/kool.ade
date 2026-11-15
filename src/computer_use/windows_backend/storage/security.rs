@@ -102,20 +102,28 @@ pub(super) fn private_acl_matches_current_user_and_system(
     handle: HANDLE,
     current_sid: &[u8],
 ) -> io::Result<bool> {
-    acl_matches_current_user_and_system(handle, current_sid, true)
+    acl_matches_current_user_and_system(handle, current_sid, true, false)
 }
 
 pub(super) fn preexisting_acl_is_safe_to_lock(
     handle: HANDLE,
     current_sid: &[u8],
 ) -> io::Result<bool> {
-    acl_matches_current_user_and_system(handle, current_sid, false)
+    acl_matches_current_user_and_system(handle, current_sid, false, false)
+}
+
+pub(super) fn preexisting_guest_socket_acl_is_safe(
+    handle: HANDLE,
+    current_sid: &[u8],
+) -> io::Result<bool> {
+    acl_matches_current_user_and_system(handle, current_sid, false, true)
 }
 
 fn acl_matches_current_user_and_system(
     handle: HANDLE,
     current_sid: &[u8],
     require_protected: bool,
+    allow_non_inheritable_aces: bool,
 ) -> io::Result<bool> {
     let mut dacl = null_mut();
     let mut descriptor = null_mut();
@@ -156,7 +164,13 @@ fn acl_matches_current_user_and_system(
         };
     let safe = if protected && valid_descriptor && present != 0 && !descriptor_dacl.is_null() {
         // SAFETY: ACL remains owned by the live descriptor from GetSecurityInfo.
-        unsafe { acl_has_only_user_and_system_full_access(descriptor_dacl, current_sid) }
+        unsafe {
+            acl_has_only_user_and_system_full_access(
+                descriptor_dacl,
+                current_sid,
+                allow_non_inheritable_aces,
+            )
+        }
     } else {
         false
     };
@@ -168,6 +182,7 @@ fn acl_matches_current_user_and_system(
 unsafe fn acl_has_only_user_and_system_full_access(
     dacl: *mut windows_sys::Win32::Security::ACL,
     current_sid: &[u8],
+    allow_non_inheritable_aces: bool,
 ) -> bool {
     // SAFETY: caller supplies the DACL pointer extracted from a live descriptor.
     if unsafe { IsValidAcl(dacl) } == 0 {
@@ -230,7 +245,9 @@ unsafe fn acl_has_only_user_and_system_full_access(
         let explicit_flags = (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE) as u8;
         let inherited_flags = explicit_flags | INHERITED_ACE as u8;
         if header.AceType != 0
-            || (header.AceFlags != explicit_flags && header.AceFlags != inherited_flags)
+            || (header.AceFlags != explicit_flags
+                && header.AceFlags != inherited_flags
+                && !(allow_non_inheritable_aces && header.AceFlags == INHERITED_ACE as u8))
         {
             return false;
         }
