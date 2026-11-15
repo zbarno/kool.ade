@@ -66,20 +66,25 @@ fn storage_accepts_only_the_private_exact_session_af_unix_leaf() {
 
 #[test]
 fn storage_rejects_af_unix_socket_with_wrong_name_or_ancestor() {
-    for relative in [
-        "sessions/123e4567-e89b-12d3-a456-426614174000/other.sock",
-        "sessions/nested/123e4567-e89b-12d3-a456-426614174000/guest-control-v1.sock",
-    ] {
-        let root = ShortStorageRoot::new();
-        let path = root.path().join(relative);
-        std::fs::create_dir_all(path.parent().expect("socket parent")).expect("parents");
-        let socket = BoundUnixSocket::new(&path);
-        assert!(
-            !super::super::tree::is_expected_guest_socket(root.path(), &path),
-            "{relative}"
-        );
-        drop(socket);
-    }
+    let root = ShortStorageRoot::new();
+    let wrong_name = root
+        .path()
+        .join("sessions/123e4567-e89b-12d3-a456-426614174000/other.sock");
+    std::fs::create_dir_all(wrong_name.parent().expect("socket parent")).expect("parents");
+    let socket = BoundUnixSocket::new(&wrong_name);
+    assert!(!super::super::tree::is_expected_guest_socket(
+        root.path(),
+        &wrong_name
+    ));
+    drop(socket);
+
+    let nested_ancestor = root
+        .path()
+        .join("sessions/nested/123e4567-e89b-12d3-a456-426614174000/guest-control-v1.sock");
+    assert!(!super::super::tree::is_expected_guest_socket(
+        root.path(),
+        &nested_ancestor
+    ));
 }
 
 #[test]
