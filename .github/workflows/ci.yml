@@ -43,6 +43,8 @@ jobs:
         run: cargo +1.98.1 fmt --all --check
       - name: Check standalone Windows regression formatting
         run: cargo +1.98.1 fmt --manifest-path tests/windows-process-tree/Cargo.toml -- --check
+      - name: Check Computer Use storage fixture formatting
+        run: cargo +1.98.1 fmt --manifest-path tests/windows-computer-use-storage/Cargo.toml -- --check
 
   tests:
     # Do not provision expensive runtimes if the fast Rust checks fail.

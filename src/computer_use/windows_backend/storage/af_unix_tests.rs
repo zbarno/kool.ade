@@ -5,6 +5,7 @@ use std::{
     os::windows::ffi::OsStrExt,
     path::{Path, PathBuf},
     ptr::{null, null_mut},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use windows_sys::Win32::{
     Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE},
@@ -12,12 +13,10 @@ use windows_sys::Win32::{
         AF_UNIX, SOCK_STREAM, SOCKADDR, SOCKADDR_UN, SOCKET, WSADATA, WSAStartup, bind,
         closesocket, socket,
     },
-    Storage::FileSystem::GetLogicalDrives,
     Storage::FileSystem::{
-        CreateFileW, CreateSymbolicLinkW, DDD_EXACT_MATCH_ON_REMOVE, DDD_RAW_TARGET_PATH,
-        DDD_REMOVE_DEFINITION, DefineDosDeviceW, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, OPEN_EXISTING, READ_CONTROL,
+        CreateFileW, CreateSymbolicLinkW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+        READ_CONTROL,
     },
 };
 
@@ -106,42 +105,27 @@ fn socket_validation_rejects_wrong_tag_owner_and_acl() {
 }
 
 struct ShortStorageRoot {
-    temporary: tempfile::TempDir,
-    device: Vec<u16>,
-    target: Vec<u16>,
     path: PathBuf,
 }
 
 impl ShortStorageRoot {
     fn new() -> Self {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        let logical_drives = unsafe { GetLogicalDrives() };
-        let mut mapping = None;
-        for letter in (b'X'..=b'Z').rev() {
-            let index = u32::from(letter - b'A');
-            if logical_drives & (1 << index) != 0 {
-                continue;
-            }
-            let drive = format!("{}:", letter as char);
-            let device = drive.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
-            let target = format!(r"\??\{}", temporary.path().display())
-                .encode_utf16()
-                .chain(Some(0))
-                .collect::<Vec<_>>();
-            if unsafe { DefineDosDeviceW(DDD_RAW_TARGET_PATH, device.as_ptr(), target.as_ptr()) }
-                != 0
-            {
-                mapping = Some((drive, device, target));
-                break;
+        static NEXT_ROOT: AtomicUsize = AtomicUsize::new(0);
+        let temporary = std::env::temp_dir();
+        for _ in 0..1024 {
+            let name = format!(
+                "k{:x}{:x}",
+                std::process::id(),
+                NEXT_ROOT.fetch_add(1, Ordering::Relaxed)
+            );
+            let path = temporary.join(name);
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Self { path },
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("create short temporary storage root: {error}"),
             }
         }
-        let (drive, device, target) = mapping.expect("temporary DOS drive mapping");
-        Self {
-            temporary,
-            device,
-            target,
-            path: PathBuf::from(format!("{drive}\\")),
-        }
+        panic!("unable to allocate a unique short storage root");
     }
 
     fn path(&self) -> &Path {
@@ -151,14 +135,7 @@ impl ShortStorageRoot {
 
 impl Drop for ShortStorageRoot {
     fn drop(&mut self) {
-        let _keep_tempdir_alive = &self.temporary;
-        unsafe {
-            DefineDosDeviceW(
-                DDD_RAW_TARGET_PATH | DDD_REMOVE_DEFINITION | DDD_EXACT_MATCH_ON_REMOVE,
-                self.device.as_ptr(),
-                self.target.as_ptr(),
-            );
-        }
+        std::fs::remove_dir_all(&self.path).expect("remove short temporary storage root");
     }
 }
 
