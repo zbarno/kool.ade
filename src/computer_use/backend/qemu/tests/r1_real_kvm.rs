@@ -191,6 +191,8 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         },
     )
     .map_err(|error| format!("signed overlay creation: {error}"))?;
+    let overlay_path = overlay.path().to_path_buf();
+    let base_image_path = image.path().to_path_buf();
 
     let (handle, _) = backend
         .prepare(&session, overlay, unix_time_ms()?)
@@ -249,6 +251,12 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         provisioning_ms = provisioning_started.elapsed().as_millis();
         qmp::assert_no_network_device(&session_directory.join("qemu-qmp.sock"))
             .map_err(|error| format!("disabled-network QEMU device graph: {error}"))?;
+        qmp::assert_only_approved_block_files(
+            &session_directory.join("qemu-qmp.sock"),
+            &overlay_path,
+            &base_image_path,
+        )
+        .map_err(|error| format!("QEMU host-file isolation: {error}"))?;
         host_environment::assert_host_secret_not_inherited(&session_directory)
             .map_err(|error| format!("host secret isolation: {error}"))?;
 
