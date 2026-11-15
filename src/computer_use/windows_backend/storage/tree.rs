@@ -209,10 +209,16 @@ pub(super) fn validate_guest_socket_handle(handle: HANDLE, current_sid: &[u8]) -
         !owner.is_null() && unsafe { EqualSid(owner, current_sid.as_ptr().cast_mut().cast()) != 0 };
     // SAFETY: descriptor was allocated by GetSecurityInfo.
     unsafe { LocalFree(descriptor.cast()) };
-    if !owned_by_user || !preexisting_acl_is_safe_to_lock(handle, current_sid)? {
+    if !owned_by_user {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            "guest-control socket owner or ACL is not private to the current user and SYSTEM",
+            "guest-control socket is not owned by the current user",
+        ));
+    }
+    if !preexisting_acl_is_safe_to_lock(handle, current_sid)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "guest-control socket ACL is not private to the current user and SYSTEM",
         ));
     }
     Ok(())
