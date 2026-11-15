@@ -25,8 +25,7 @@ pub(super) fn qemu_args(
     let vcpus = format!("cores={vcpus},threads=1,sockets=1");
     let memory = memory_bytes.to_string();
     let chardev = format!("pipe,id=guestcontrol,path={pipe_name}");
-    let serial =
-        format!("virtserialport,chardev=guestcontrol,name=org.koolade.computer-control.v1");
+    let serial = "virtserialport,chardev=guestcontrol,name=org.koolade.computer-control.v1";
     Ok([
         "-no-user-config",
         "-nodefaults",
@@ -63,7 +62,7 @@ pub(super) fn qemu_args(
         "-device",
         "virtio-serial-pci",
         "-device",
-        &serial,
+        serial,
         "-fw_cfg",
         &boot,
         "-no-reboot",
