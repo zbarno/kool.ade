@@ -302,15 +302,14 @@ pub(super) struct ShortStorageRoot {
 impl ShortStorageRoot {
     pub(super) fn new() -> Self {
         static NEXT_ROOT: AtomicUsize = AtomicUsize::new(0);
-        let user_profile = std::env::var_os("USERPROFILE").expect("user profile");
-        let user_profile = PathBuf::from(user_profile);
+        let temporary_root = std::env::temp_dir();
         for _ in 0..1024 {
             let name = format!(
                 "k{:x}{:x}",
                 std::process::id(),
                 NEXT_ROOT.fetch_add(1, Ordering::Relaxed)
             );
-            let directory = user_profile.join(name);
+            let directory = temporary_root.join(name);
             match std::fs::create_dir(&directory) {
                 Ok(()) => return Self { path: directory },
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
