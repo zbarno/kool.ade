@@ -13,13 +13,13 @@ use windows_sys::Win32::{
         closesocket, socket,
     },
     Security::{
-        Authorization::{ConvertSidToStringSidW, GetSecurityInfo, SE_FILE_OBJECT},
+        Authorization::{ConvertSidToStringSidW, GetSecurityInfo, SE_FILE_OBJECT, SetSecurityInfo},
         OWNER_SECURITY_INFORMATION,
     },
     Storage::FileSystem::{
         CreateFileW, CreateSymbolicLinkW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
         FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-        READ_CONTROL, WRITE_DAC,
+        READ_CONTROL, WRITE_DAC, WRITE_OWNER,
     },
 };
 
@@ -35,6 +35,7 @@ fn storage_accepts_only_the_private_exact_session_af_unix_leaf() {
         &path
     ));
     let handle = open_leaf_handle(&path);
+    set_socket_owner(handle, &sid);
     super::super::set_private_dacl(handle, &sid).expect("set private socket ACL");
     assert_eq!(
         socket_owner_sid(handle),
@@ -105,6 +106,7 @@ fn socket_validation_rejects_wrong_tag_owner_and_acl() {
 
     let socket = BoundUnixSocket::new(&path);
     let handle = open_leaf_handle(&path);
+    set_socket_owner(handle, &sid);
     super::super::set_private_dacl(handle, &sid).expect("set private socket ACL");
     assert_eq!(
         socket_owner_sid(handle),
@@ -156,6 +158,22 @@ fn socket_owner_sid(handle: HANDLE) -> String {
     };
     unsafe { LocalFree(descriptor.cast()) };
     result
+}
+
+fn set_socket_owner(handle: HANDLE, sid: &[u8]) {
+    // SAFETY: the handle is opened with WRITE_OWNER and `sid` is a valid user SID.
+    let status = unsafe {
+        SetSecurityInfo(
+            handle,
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            sid.as_ptr().cast_mut().cast(),
+            null_mut(),
+            null_mut(),
+            null_mut(),
+        )
+    };
+    assert_eq!(status, 0, "set AF_UNIX owner SID");
 }
 
 fn sid_string(sid: &[u8]) -> String {
@@ -277,7 +295,7 @@ fn open_leaf_handle(path: &Path) -> HANDLE {
     let handle = unsafe {
         CreateFileW(
             wide.as_ptr(),
-            FILE_READ_ATTRIBUTES | READ_CONTROL | WRITE_DAC,
+            FILE_READ_ATTRIBUTES | READ_CONTROL | WRITE_DAC | WRITE_OWNER,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             null(),
             OPEN_EXISTING,
