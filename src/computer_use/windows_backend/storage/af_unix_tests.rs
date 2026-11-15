@@ -15,7 +15,7 @@ use windows_sys::Win32::{
     Storage::FileSystem::{
         CreateFileW, CreateSymbolicLinkW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
         FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-        READ_CONTROL,
+        READ_CONTROL, WRITE_DAC,
     },
 };
 
@@ -213,7 +213,7 @@ fn open_leaf_handle(path: &Path) -> HANDLE {
     let handle = unsafe {
         CreateFileW(
             wide.as_ptr(),
-            FILE_READ_ATTRIBUTES | READ_CONTROL,
+            FILE_READ_ATTRIBUTES | READ_CONTROL | WRITE_DAC,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             null(),
             OPEN_EXISTING,
