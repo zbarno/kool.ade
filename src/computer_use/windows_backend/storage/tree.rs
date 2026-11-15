@@ -166,7 +166,7 @@ fn is_expected_guest_socket(storage_root: &Path, path: &Path) -> bool {
             .is_some_and(super::super::storage_policy::valid_session_id)
 }
 
-fn validate_guest_socket_handle(handle: HANDLE, current_sid: &[u8]) -> io::Result<()> {
+pub(super) fn validate_guest_socket_handle(handle: HANDLE, current_sid: &[u8]) -> io::Result<()> {
     let mut tag = FILE_ATTRIBUTE_TAG_INFO::default();
     // SAFETY: `tag` is writable and the handle refers to the reparse leaf itself.
     if unsafe {
