@@ -630,8 +630,9 @@ jobs:
         run: rustup toolchain install 1.98.1 --profile minimal
       - name: Verify AF_UNIX storage leaf validation
         run: >-
-          cargo +1.98.1 test --locked --lib
+          cargo +1.98.1 test --locked
           computer_use::windows_backend::storage::tests::af_unix_tests
+          --manifest-path tests/windows-computer-use-storage/Cargo.toml
           -- --nocapture
   # Supersedes the Fedora 44 Pi host-runtime smoke test: runtime availability
   # now comes from the pinned executor image, exercised by rootless Docker E2E.

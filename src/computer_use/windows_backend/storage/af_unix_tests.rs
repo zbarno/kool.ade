@@ -12,13 +12,13 @@ use windows_sys::Win32::{
         AF_UNIX, SOCK_STREAM, SOCKADDR, SOCKADDR_UN, SOCKET, WSADATA, WSAStartup, bind,
         closesocket, socket,
     },
+    Storage::FileSystem::GetLogicalDrives,
     Storage::FileSystem::{
         CreateFileW, CreateSymbolicLinkW, DDD_EXACT_MATCH_ON_REMOVE, DDD_RAW_TARGET_PATH,
         DDD_REMOVE_DEFINITION, DefineDosDeviceW, FILE_FLAG_BACKUP_SEMANTICS,
         FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
         FILE_SHARE_WRITE, OPEN_EXISTING, READ_CONTROL,
     },
-    System::SystemInformation::GetLogicalDrives,
 };
 
 #[test]
@@ -61,7 +61,9 @@ fn socket_validation_rejects_wrong_tag_owner_and_acl() {
         .session_directory("123e4567-e89b-12d3-a456-426614174000")
         .expect("session");
     let path = session.join("guest-control-v1.sock");
-    let sid = super::super::process::current_user_sid().expect("current SID");
+    let sid = super::super::super::process::current_user_sid()
+        .expect("current SID")
+        .to_vec();
 
     // A symbolic link at the permitted name has the wrong reparse tag.
     let target = session.join("target.bin");
@@ -76,9 +78,8 @@ fn socket_validation_rejects_wrong_tag_owner_and_acl() {
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
-    assert_ne!(
+    assert!(
         unsafe { CreateSymbolicLinkW(wide_link.as_ptr(), wide_target.as_ptr(), 2) },
-        0,
         "create unprivileged file symlink fixture"
     );
     assert!(WindowsVmStorage::open_at(short_root.path()).is_err());
