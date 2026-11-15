@@ -44,6 +44,7 @@ pub(super) fn detail(
     confirmed: bool,
     drift: bool,
     review_failed: bool,
+    review_unable: bool,
     approved: bool,
 ) -> String {
     let stamp = format!(
@@ -88,6 +89,13 @@ pub(super) fn detail(
             "“{feature_title}” was revised after your earlier approval, so that \
              approval no longer applies. Review the current {form} ({stamp}) and \
              approve it again.",
+        );
+    }
+    if confirmed && review_unable {
+        return format!(
+            "You approved this plan ({stamp}), but the independent review could not finish. \
+             Your plan is unchanged, and task creation remains paused. Retry the review \
+             when the review card offers that option.",
         );
     }
     if confirmed && review_failed {
@@ -141,6 +149,7 @@ mod tests {
             confirmed,
             drift,
             review_failed,
+            false,
             approved,
         )
     }
@@ -184,5 +193,26 @@ mod tests {
         let detail = args(true, true, false, true, false, vec![]);
         assert!(detail.contains("requested changes"));
         assert!(detail.contains("Request changes"));
+    }
+
+    #[test]
+    fn unable_review_keeps_the_plan_unchanged_and_explains_the_pause() {
+        let detail = detail(
+            true,
+            "Login screen",
+            &[],
+            &hash(),
+            "abc123",
+            false,
+            true,
+            false,
+            true,
+            true,
+            false,
+        );
+        assert!(detail.contains("could not finish"));
+        assert!(detail.contains("plan is unchanged"));
+        assert!(detail.contains("task creation remains paused"));
+        assert!(!detail.contains("requested changes"));
     }
 }

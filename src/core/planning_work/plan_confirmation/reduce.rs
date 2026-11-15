@@ -78,14 +78,15 @@ pub(super) fn reconcile_feature(
                 .unwrap_or(false)
         })
         .unwrap_or(false);
-    let review_failed = snapshot
-        .as_ref()
-        .and_then(|snapshot| {
-            plan_snapshot::plan_review_verdict(&state.planning_store, snapshot)
-                .ok()
-                .flatten()
-        })
-        .is_some_and(|verdict| !verdict.pass);
+    let review_verdict = snapshot.as_ref().and_then(|snapshot| {
+        plan_snapshot::plan_review_verdict(&state.planning_store, snapshot)
+            .ok()
+            .flatten()
+    });
+    let review_failed = review_verdict.as_ref().is_some_and(|verdict| !verdict.pass);
+    let review_unable = review_verdict.as_ref().is_some_and(|verdict| {
+        verdict.outcome == Some(crate::harness::prompt_catalog::ReviewOutcomeV1::ReviewUnable)
+    });
     let approved =
         crate::core::workflow::feature_approved(&state.planning_store, &state.workflow, feature_id);
 
@@ -157,6 +158,7 @@ pub(super) fn reconcile_feature(
         blockers,
         confirmed,
         review_failed,
+        review_unable,
         approved,
         &hash,
         &spec_revision,

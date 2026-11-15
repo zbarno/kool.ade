@@ -142,7 +142,14 @@ fn detail_list(ui: &mut egui::Ui, title: &str, entries: &[String]) {
 impl Action {
     pub fn label(&self) -> String {
         if self.retry_review {
-            return format!("Start or retry independent plan review for {}", self.id);
+            return if self.review_verdict.as_ref().is_some_and(|verdict| {
+                verdict.outcome
+                    == Some(crate::harness::prompt_catalog::ReviewOutcomeV1::ReviewUnable)
+            }) {
+                "Retry independent review".into()
+            } else {
+                "Start independent review".into()
+            };
         }
         if self.user_confirmed
             && self

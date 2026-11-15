@@ -1,6 +1,10 @@
 mod cycles;
 mod details;
 
+pub(super) fn navigate_to_child(ui: &mut egui::Ui, return_key: &str, child_key: &str) {
+    details::navigate_to_planning_child(ui, return_key, child_key);
+}
+
 pub(super) fn paint(
     ui: &mut egui::Ui,
     surface: Option<&mut dyn crate::ui::Surface>,
