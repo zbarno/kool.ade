@@ -618,6 +618,21 @@ jobs:
         run: >-
           cargo +1.98.1 test --locked
           --manifest-path tests/windows-copilot-policy-hooks/Cargo.toml
+  windows-computer-use-storage:
+    # Run the native storage boundary fixtures on Windows; Unix hosts cannot
+    # exercise AF_UNIX reparse tags or Windows owner/DACL inheritance.
+    needs: [format, clippy, core-implementation, docs]
+    name: Windows Computer Use storage
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Verify AF_UNIX storage leaf validation
+        run: >-
+          cargo +1.98.1 test --locked --lib
+          computer_use::windows_backend::storage::tests::af_unix_tests
+          -- --nocapture
   # Supersedes the Fedora 44 Pi host-runtime smoke test: runtime availability
   # now comes from the pinned executor image, exercised by rootless Docker E2E.
   docker-only-check:
@@ -631,7 +646,7 @@ jobs:
   quality:
     name: format, tests, and clippy
     if: always()
-    needs: [format, tests, core-implementation, daemon-recovery, queue-concurrency, docs, clippy, windows-process-tree, docker-only-check]
+    needs: [format, tests, core-implementation, daemon-recovery, queue-concurrency, docs, clippy, windows-process-tree, windows-computer-use-storage, docker-only-check]
     runs-on: ubuntu-latest
     steps:
       - name: Require every quality gate
@@ -644,6 +659,7 @@ jobs:
           DOCS_RESULT: ${{ needs.docs.result }}
           CLIPPY_RESULT: ${{ needs.clippy.result }}
           WINDOWS_PROCESS_TREE_RESULT: ${{ needs['windows-process-tree'].result }}
+          WINDOWS_COMPUTER_USE_STORAGE_RESULT: ${{ needs['windows-computer-use-storage'].result }}
           DOCKER_ONLY_RESULT: ${{ needs.docker-only-check.result }}
         run: |
           printf 'format: %s\ntests: %s\nclippy: %s\n' \
@@ -653,6 +669,7 @@ jobs:
           printf 'isolated queue concurrency: %s\n' "$QUEUE_RESULT"
           printf 'documentation tests: %s\n' "$DOCS_RESULT"
           printf 'Windows process-tree regression: %s\n' "$WINDOWS_PROCESS_TREE_RESULT"
+          printf 'Windows Computer Use storage: %s\n' "$WINDOWS_COMPUTER_USE_STORAGE_RESULT"
           printf 'Docker-only runtime: %s\n' "$DOCKER_ONLY_RESULT"
           test "$FORMAT_RESULT" = success
           test "$TESTS_RESULT" = success
@@ -662,4 +679,5 @@ jobs:
           test "$DOCS_RESULT" = success
           test "$CLIPPY_RESULT" = success
           test "$WINDOWS_PROCESS_TREE_RESULT" = success
+          test "$WINDOWS_COMPUTER_USE_STORAGE_RESULT" = success
           test "$DOCKER_ONLY_RESULT" = success
