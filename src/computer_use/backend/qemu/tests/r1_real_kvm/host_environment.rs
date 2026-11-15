@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{fs, path::Path};
 
 const HOST_SECRET_CANARY: &str = "KOOLADE_R1_REAL_KVM_HOST_SECRET_CANARY";
 
@@ -24,13 +24,14 @@ pub(super) fn assert_host_secret_not_inherited(session_directory: &Path) -> Resu
 }
 
 fn validate_qemu_environment(environment: &[u8], session_directory: &Path) -> Result<(), String> {
-    let expected = BTreeSet::from([
+    let mut expected = vec![
         "PATH=/usr/bin:/bin".to_owned(),
         "HOME=/nonexistent".to_owned(),
         "LC_ALL=C".to_owned(),
         format!("TMPDIR={}", session_directory.display()),
-    ]);
-    let actual = environment
+    ];
+    expected.sort_unstable();
+    let mut actual = environment
         .split(|byte| *byte == 0)
         .filter(|entry| !entry.is_empty())
         .map(|entry| {
@@ -38,7 +39,8 @@ fn validate_qemu_environment(environment: &[u8], session_directory: &Path) -> Re
                 .map(str::to_owned)
                 .map_err(|_| "QEMU environment contains a non-UTF-8 entry".to_owned())
         })
-        .collect::<Result<BTreeSet<_>, _>>()?;
+        .collect::<Result<Vec<_>, _>>()?;
+    actual.sort_unstable();
     if actual != expected {
         return Err(format!(
             "QEMU environment differs from its explicit allowlist: {actual:?}"
@@ -73,6 +75,14 @@ mod tests {
         let session =
             Path::new("/tmp/koolade/runtime/sessions/00000000-0000-4000-8000-000000000001");
         let environment = b"PATH=/usr/bin:/bin\0HOME=/nonexistent\0LC_ALL=C\0TMPDIR=/tmp/koolade/runtime/sessions/00000000-0000-4000-8000-000000000001\0DISPLAY=:0\0";
+        assert!(validate_qemu_environment(environment, session).is_err());
+    }
+
+    #[test]
+    fn qemu_environment_rejects_duplicate_allowlisted_entries() {
+        let session =
+            Path::new("/tmp/koolade/runtime/sessions/00000000-0000-4000-8000-000000000001");
+        let environment = b"PATH=/usr/bin:/bin\0HOME=/nonexistent\0HOME=/nonexistent\0LC_ALL=C\0TMPDIR=/tmp/koolade/runtime/sessions/00000000-0000-4000-8000-000000000001\0";
         assert!(validate_qemu_environment(environment, session).is_err());
     }
 }
