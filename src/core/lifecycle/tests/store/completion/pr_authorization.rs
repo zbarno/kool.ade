@@ -4,6 +4,8 @@ use crate::core::lifecycle::{
     FeatureEvent, GateActor, GateDecision, GateReceipt, LifecycleStore,
     PullRequestPreparationStatus, TaskEvent, TaskPhase,
 };
+#[path = "pr_authorization/completion_approval_race.rs"]
+mod completion_approval_race;
 #[path = "pr_authorization/current_support.rs"]
 pub(super) mod current_support;
 

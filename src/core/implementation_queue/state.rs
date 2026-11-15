@@ -119,6 +119,7 @@ impl Queue {
             .filter_map(|(ticket, failure)| {
                 let doc = docs.iter().find(|doc| &doc.path == ticket)?;
                 let recoverable = failure.recovery == RecoveryDisposition::AutomaticRetry
+                    || failure.recovery == RecoveryDisposition::AwaitCapabilityRefresh
                     || (failure.kind == FailureKind::NoImplementationChanges
                         && failure.recovery == RecoveryDisposition::ExplicitResume
                         && crate::core::implementation::permits_evidence_only_completion(

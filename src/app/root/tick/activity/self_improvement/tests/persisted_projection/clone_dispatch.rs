@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "clone_dispatch/auto_worker.rs"]
+mod auto_worker;
+
 /// Production boundary: the app synchronizer may enter Implementing only after
 /// the normal task implementation reports a ready isolated clone matching the
 /// approved task, repository, source SHA, branch pair, and current canonical
@@ -13,6 +16,7 @@ pub(super) fn verify_clone_dispatch(
     runs: &crate::core::self_improvement::SelfImprovementStore<'_>,
     run_uid: &str,
     task_uid: &str,
+    feature_id: &str,
 ) {
     use crate::core::self_improvement::SelfImprovementPhaseV1 as Phase;
 
@@ -29,8 +33,7 @@ pub(super) fn verify_clone_dispatch(
         CloneMismatch::DestinationBranch,
         CloneMismatch::RepositoryIdentity,
     ] {
-        let mut target =
-            implementation_record(&run, task_uid, &clone_path, &run.target_repository_uid);
+        let mut target = implementation_record(&run, task_uid, &clone_path, "root");
         mismatch.apply(&mut target);
         insert_implementation(app, target);
         synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
@@ -42,10 +45,6 @@ pub(super) fn verify_clone_dispatch(
         );
         assert_app_idle(app);
     }
-
-    let valid_target =
-        implementation_record(&run, task_uid, &clone_path, &run.target_repository_uid);
-    insert_implementation(app, valid_target);
 
     let planning = match &app.screen {
         crate::app::root::Screen::Connected(project) => project.state.planning_store.clone(),
@@ -68,11 +67,7 @@ pub(super) fn verify_clone_dispatch(
     assert_app_idle(app);
 
     save_manifest(&planning, &original_manifest);
-    synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
-    let implementing = runs.load(run_uid).unwrap();
-    assert_eq!(implementing.phase, Phase::Implementing);
-    assert!(implementing.clone_uid.is_some());
-    assert_app_idle(app);
+    auto_worker::dispatch_and_verify(app, lifecycle, runs, run_uid, task_uid, feature_id);
 }
 
 fn save_manifest(
@@ -140,7 +135,7 @@ fn implementation_record(
         source_ref: run.source_ref.clone(),
         source_commit: Some(run.source_sha.clone()),
         repository_id: Some(repository_id.into()),
-        project_id: Some(run.target_repository_uid.clone()),
+        project_id: Some("root".into()),
         repository_identity: Some("fixture-repository-identity".into()),
         push_repository: None,
         repository_cache: None,

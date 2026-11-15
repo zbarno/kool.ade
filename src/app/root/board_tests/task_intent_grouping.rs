@@ -1,5 +1,10 @@
 use super::*;
 
+#[path = "task_intent_grouping/all_done_publication.rs"]
+mod all_done_publication;
+#[path = "task_intent_grouping/all_done_runtime_qa.rs"]
+mod all_done_runtime_qa;
+
 /// Production rendering boundary: one TaskIntent header is painted in every
 /// lane containing owned children. The grouping helper alone cannot prove that
 /// the actual lane painter renders both views. Uses the synthetic fixture, no

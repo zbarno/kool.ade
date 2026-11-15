@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod decode;
 pub(super) use decode::decode_value;
 
-const QUEUE_VERSION: u32 = 5;
+const QUEUE_VERSION: u32 = 6;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

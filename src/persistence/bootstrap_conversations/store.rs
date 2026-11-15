@@ -90,6 +90,7 @@ fn append_at(
             specification_context: None,
             baseline_review_id: None,
             verified_repository_evidence: Vec::new(),
+            manager_run_event: None,
             ts: message.ts,
         };
         StoredMessageV1::from_message(&sanitized)?;

@@ -222,7 +222,7 @@ fn user_confirmation_runs_independent_plan_reviewer_and_persists_its_exact_verdi
     assert_eq!(status, crate::core::planning_work::WorkStatus::Todo);
     assert_eq!(
         blocked_detail,
-        "Approved: the independent PlanReviewer approved this exact plan snapshot. Task generation is ready when requested."
+        "Approved: the independent PlanReviewer approved this exact plan snapshot. Task generation starts automatically once required repository Git intents are approved."
     );
     drop(observation);
     assert!(matches!(

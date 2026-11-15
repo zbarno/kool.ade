@@ -8,6 +8,12 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+mod manager;
+pub use manager::{
+    ManagerEventCheckpointV1, ManagerInputEventV1, ManagerRunEventV1, ManagerRunOutcomeV1,
+    checkpoint_attempts,
+};
+
 /// Who authored a chat line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -49,6 +55,9 @@ pub struct ChatMessage {
     /// Durable lease heartbeat; the visible event timestamp remains unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lease_renewed_at: Option<DateTime<Utc>>,
+    /// Structured Manager supervision checkpoint, stored in private activity history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manager_run_event: Option<ManagerRunEventV1>,
     pub ts: DateTime<Utc>,
 }
 
@@ -113,6 +122,7 @@ impl ChatMessage {
             baseline_review_id: None,
             verified_repository_evidence: Vec::new(),
             lease_renewed_at: None,
+            manager_run_event: None,
             ts: Utc::now(),
         }
     }

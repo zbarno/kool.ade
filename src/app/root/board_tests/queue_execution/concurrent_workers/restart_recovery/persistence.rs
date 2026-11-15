@@ -7,6 +7,16 @@ pub(super) struct PartialClones {
     push_repository: Option<String>,
 }
 
+pub(super) fn git(root: &std::path::Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git command failed");
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
 pub(super) fn prepare_partial_clones(
     store: &crate::artifacts::planning_store::PlanningStore,
     repository: &std::path::Path,
@@ -31,7 +41,7 @@ pub(super) fn prepare_partial_clones(
         "bare remote creation failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    super::git(
+    git(
         repository,
         &["remote", "add", "origin", remote.to_str().unwrap()],
     );
@@ -47,10 +57,10 @@ pub(super) fn prepare_partial_clones(
     for document in documents {
         let allocation = crate::core::implementation::key_for_ticket(&document.path);
         let branch = format!("koolade/{allocation}");
-        super::git(repository, &["branch", &branch, "main"]);
+        git(repository, &["branch", &branch, "main"]);
     }
-    super::git(repository, &["push", "origin", "--all"]);
-    super::git(repository, &["remote", "set-head", "origin", "main"]);
+    git(repository, &["push", "origin", "--all"]);
+    git(repository, &["remote", "set-head", "origin", "main"]);
     let (repository_cache, repository_identity, push_repository) =
         crate::core::implementation::prepare_repository_cache_for_test(store, repository, "root")
             .unwrap();
@@ -76,12 +86,12 @@ pub(super) fn prepare_partial_clones(
             "clone failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
-        super::git(&path, &["config", "user.name", "Recovery Test"]);
-        super::git(&path, &["config", "user.email", "recovery@example.test"]);
+        git(&path, &["config", "user.name", "Recovery Test"]);
+        git(&path, &["config", "user.email", "recovery@example.test"]);
         let branch = format!("koolade/{allocation}");
-        super::git(&path, &["checkout", "-q", "-b", &branch]);
+        git(&path, &["checkout", "-q", "-b", &branch]);
         std::fs::write(path.join("partial-progress.txt"), progress).unwrap();
-        let sha = super::git(&path, &["rev-parse", "HEAD"]);
+        let sha = git(&path, &["rev-parse", "HEAD"]);
         let intent = crate::core::git_intent::GitIntentV1::approve(
             "root".into(),
             branch,
@@ -97,7 +107,7 @@ pub(super) fn prepare_partial_clones(
         tasks[index].destination_branch = Some(intent.destination_ref.clone());
         tasks[index].git_intent = Some(intent.clone());
         tasks[index].git_intents.insert("root".into(), intent);
-        assert!(super::git(&path, &["status", "--porcelain"]).contains("partial-progress.txt"));
+        assert!(git(&path, &["status", "--porcelain"]).contains("partial-progress.txt"));
         paths.push(path);
         shas.push(sha);
     }

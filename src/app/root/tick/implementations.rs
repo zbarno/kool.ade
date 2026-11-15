@@ -6,10 +6,18 @@ impl KooladeApp {
             let mut finished = Vec::new();
             let mut claim_errors = std::collections::BTreeMap::new();
             let mut checklist_dirty = Vec::new();
+            let mut verified_checkpoint = false;
             for (ticket, ctrl) in &project.active_implementations {
                 for _ in 0..64 {
                     match ctrl.poll() {
                         Some(crate::core::implementation::Event::Progress(p)) => {
+                            // The verified snapshot is persisted immediately before the
+                            // independent reviewer starts. Refresh it at that boundary so
+                            // self-improvement can advance while review is still running.
+                            verified_checkpoint |= p.activity.as_deref()
+                                == Some(
+                                    "Running independent read-only CodeReviewer on the frozen task diff…",
+                                );
                             project.activity.ensure_overall();
                             if let Some(overall) = project.activity.overall.as_mut() {
                                 overall.update(Default::default());
@@ -68,6 +76,9 @@ impl KooladeApp {
                         None => break,
                     }
                 }
+            }
+            if verified_checkpoint {
+                project.refresh_implementations();
             }
             for ticket in checklist_dirty {
                 project.save_task_activity(&ticket);

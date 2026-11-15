@@ -1,6 +1,71 @@
 mod answers;
 
+fn refresh_changed_planning_snapshot(
+    project: &mut crate::app::session::Project,
+) -> Result<Vec<String>, String> {
+    let store = project.state.planning_store.clone();
+    let observed_revision = store.revision().map_err(|error| error.to_string())?;
+    if observed_revision == project.state.baseline_planning_revision
+        && !project.activity.pending_planning_work
+    {
+        return Ok(Vec::new());
+    }
+
+    let attempted = project.planning_work.clone();
+    project.state.resync().map_err(|error| error.to_string())?;
+    let (mut latest, revision) = crate::core::planning_work::load_expected(
+        &store,
+        &project.state.baseline_planning_revision,
+    )
+    .map_err(|error| error.to_string())?;
+    let mut conflicts = Vec::new();
+    for mut local in attempted {
+        let local_content = serde_json::to_string(&local).map_err(|error| error.to_string())?;
+        let dirty = local.record_baseline.as_deref() != Some(local_content.as_str());
+        if !dirty {
+            continue;
+        }
+        match (
+            local.record_baseline.as_deref(),
+            latest.iter_mut().find(|saved| saved.uid == local.uid),
+        ) {
+            (Some(baseline), Some(saved)) if saved.record_baseline.as_deref() == Some(baseline) => {
+                local.record_revision = saved.record_revision;
+                local.record_baseline.clone_from(&saved.record_baseline);
+                *saved = local;
+            }
+            (None, None) => latest.push(local),
+            _ => conflicts.push(local.uid),
+        }
+    }
+    project.planning_work = latest;
+    project.state.baseline_planning_revision = revision;
+    Ok(conflicts)
+}
+
 pub(crate) fn reconcile_inactive_planning_work(project: &mut crate::app::session::Project) {
+    let conflicts = match refresh_changed_planning_snapshot(project) {
+        Ok(conflicts) if !conflicts.is_empty() => {
+            project.activity.pending.push(format!(
+                "Planning work changed while recovery was pending; newer saved records were retained for task UID(s): {}. Review their current board state before retrying.",
+                conflicts.join(", ")
+            ));
+            conflicts
+        }
+        Ok(conflicts) => conflicts,
+        Err(error) => {
+            project.activity.pending_planning_work = true;
+            let message = format!(
+                "Planning work could not refresh after a store revision change and will retry: {error}"
+            );
+            if !project.activity.pending.iter().any(|event| {
+                event.starts_with("Planning work could not refresh after a store revision change")
+            }) {
+                project.activity.pending.push(message);
+            }
+            return;
+        }
+    };
     let active_key = project
         .active_turn
         .as_ref()
@@ -80,6 +145,7 @@ pub(crate) fn reconcile_inactive_planning_work(project: &mut crate::app::session
             .filter(|work| project.task_turns.contains_key(&work.key))
             .map(|work| work.uid.clone()),
     );
+    excluded.extend(conflicts);
     let mut changes = crate::core::planning_work::reconcile_inactive_excluding(
         &project.state,
         &mut updated,

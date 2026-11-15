@@ -5,10 +5,16 @@ use std::os::unix::{
 };
 
 fn desktop_fixture() -> (tempfile::TempDir, std::path::PathBuf, UnixListener) {
-    let home = std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
+    // The validator checks every ancestor of the simulated Desktop socket.
+    // Use an explicit trusted root when tests run on a constrained HOME;
+    // otherwise keep the fixture beneath HOME, never a shared /tmp ancestor.
+    let trusted_root = std::env::var_os("KOOLADE_TEST_DESKTOP_ROOT")
+        .or_else(|| std::env::var_os("HOME"))
+        .expect("tests need a trusted temporary root");
+    let root = tempfile::Builder::new()
+        .prefix("koolade-desktop-socket-")
+        .tempdir_in(trusted_root)
         .unwrap();
-    let root = tempfile::tempdir_in(home).unwrap();
     std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let docker_dir = root.path().join(".docker");
     std::fs::create_dir(&docker_dir).unwrap();

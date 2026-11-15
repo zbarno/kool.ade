@@ -118,8 +118,18 @@ pub(super) fn connect_canonical_with_key(
         next_question_id: None,
         git: gitops::snapshot(&canonical),
     };
-    project.activity.manager_history =
-        crate::persistence::manager_activity::load(&project.chat_slug);
+    let (manager_history, manager_diagnostics) =
+        crate::persistence::manager_activity::load_with_diagnostics(&project.chat_slug);
+    project.activity.manager_history = manager_history;
+    if manager_diagnostics.dropped_records > 0 || manager_diagnostics.read_error.is_some() {
+        let message = format!(
+            "Manager history has {} malformed record(s); replay is paused to preserve the supervision evidence. Read error: {}",
+            manager_diagnostics.dropped_records,
+            manager_diagnostics.read_error.as_deref().unwrap_or("none")
+        );
+        project.activity.manager_history_error = Some(message.clone());
+        project.activity.pending.push(message);
+    }
     project.refresh_implementations();
     if recovered_git_intents > 0 {
         project.activity.pending.push(format!(

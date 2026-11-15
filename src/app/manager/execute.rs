@@ -22,6 +22,7 @@ pub(super) fn launch(
     request: PlanningRequest,
     prepared: Result<ManagerPrompt, String>,
     product_prepared: Result<Option<ManagerPrompt>, String>,
+    run_timed_out: std::sync::Arc<std::sync::atomic::AtomicBool>,
     invocation: InvocationContext,
     done: mpsc::Sender<Result<ManagerOutput, String>>,
 ) {
@@ -50,6 +51,9 @@ pub(super) fn launch(
         let mut output = match outcome {
             Ok(output) => output,
             Err(error) => {
+                if failure_category.as_deref() == Some("timed_out") {
+                    run_timed_out.store(true, std::sync::atomic::Ordering::Release);
+                }
                 super::telemetry::persist_invocation(
                     &invocation.project_root,
                     &invocation.harness_label,

@@ -8,7 +8,13 @@ use crate::harness::discovery::ProbeResult;
 mod background;
 #[cfg(not(test))]
 pub(crate) use background::poll_auto_refresh as poll_cli_auto_refresh;
+pub(crate) use background::refresh_in_flight_for_task as cli_auto_refresh_in_flight;
 pub(crate) use background::request_refresh as request_cli_auto_refresh;
+#[cfg(test)]
+pub(crate) use background::{
+    poll_auto_refresh as poll_cli_auto_refresh_for_test,
+    with_background_sweeps_permitted as with_cli_background_sweeps_permitted_for_test,
+};
 mod bootstrap_probe;
 mod bootstrap_provider;
 mod discovery;

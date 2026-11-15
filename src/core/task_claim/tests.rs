@@ -85,6 +85,25 @@ mod local_fence {
     }
 
     #[test]
+    fn liveness_probe_checks_the_os_lock_without_inferencing_from_file_presence() {
+        let root = temp_state_root("liveness-probe");
+        let project = uuid::Uuid::new_v4();
+        let task = "task-probe";
+        assert!(
+            !crate::core::task_claim::is_claimed_by_another_process(&root, project, task).unwrap()
+        );
+        let lease = request(&root, project, task).acquire().expect("claim task");
+        assert!(
+            crate::core::task_claim::is_claimed_by_another_process(&root, project, task).unwrap()
+        );
+        drop(lease);
+        assert!(
+            !crate::core::task_claim::is_claimed_by_another_process(&root, project, task).unwrap()
+        );
+        fs::remove_dir_all(root).expect("remove temporary state");
+    }
+
+    #[test]
     fn replacing_the_lock_record_revokes_publication_verification() {
         let root = temp_state_root("replace");
         let lease =

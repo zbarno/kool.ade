@@ -128,6 +128,7 @@ impl Work {
             code_review_disposition: None,
             operational_recovery: None,
             plan_confirmation: None,
+            liveness_recovery_attempts: 0,
             detail,
             record_revision: 0,
             record_baseline: None,

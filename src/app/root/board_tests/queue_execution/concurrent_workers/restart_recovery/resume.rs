@@ -9,6 +9,14 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "resume/required_setup.rs"]
+mod required_setup;
+#[path = "resume/worker_lease.rs"]
+mod worker_lease;
+pub(in crate::app::root::board_tests::queue_execution::concurrent_workers::restart_recovery) use worker_lease::{
+    WorkerProcessLease, register_isolated_worker_home, run_worker_lease_helper_if_requested,
+};
+
 struct WorkerAttempt {
     task_id: String,
     acquired_lease: bool,
@@ -89,8 +97,11 @@ pub(super) fn exercise_task_details_resume(
     task_id: &str,
     clone_path: &Path,
     source_sha: &str,
-    old_worker_lease: std::fs::File,
+    old_worker_lease: WorkerProcessLease,
 ) {
+    // A required machine setup action remains pending while this approved
+    // project task resumes through the production dispatch path.
+    let setup_id = required_setup::persist_waiting_required_setup(app);
     let (attempt_tx, attempt_rx) = mpsc::channel();
     app.task_harness = Some(Box::new(LeaseProbeHarness {
         attempts: attempt_tx,
@@ -107,6 +118,7 @@ pub(super) fn exercise_task_details_resume(
             _ => "disconnected",
         }
     );
+    required_setup::assert_waiting(app, setup_id);
 
     let fenced = receive_attempt(&attempt_rx, app, ticket);
     assert_eq!(fenced.task_id, task_id);
@@ -121,7 +133,7 @@ pub(super) fn exercise_task_details_resume(
     );
     assert_pinned_interrupted_state(app, ticket, task_id, clone_path, source_sha);
 
-    drop(old_worker_lease);
+    old_worker_lease.release();
     let (attempt_tx, attempt_rx) = mpsc::channel();
     let release = Arc::new(Barrier::new(2));
     app.task_harness = Some(Box::new(LeaseProbeHarness {
@@ -136,6 +148,7 @@ pub(super) fn exercise_task_details_resume(
         resumed.acquired_lease,
         "resume must acquire the released lease"
     );
+    required_setup::assert_waiting(app, setup_id);
     assert_pinned_interrupted_state(app, ticket, task_id, clone_path, source_sha);
     release.wait();
     wait_for_controller(app, ticket);

@@ -100,6 +100,7 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
                 task_intent_cycles: Vec::new(),
                 task_intent_cycle_uid: None,
                 task_intent_archived_at_ms: None,
+                liveness_recovery_attempts: 0,
                 git_intent: None,
                 git_intents: std::collections::BTreeMap::new(),
                 source_branch: None,

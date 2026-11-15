@@ -1,5 +1,6 @@
 use super::*;
 
+mod capability_refresh;
 mod queue_age;
 use queue_age::clear_ready_wait_ages;
 
@@ -8,12 +9,7 @@ impl KooladeApp {
         let next = if let Screen::Connected(project) = &mut self.screen {
             project.queue.waiting_for_capacity.clear();
             let cancelled = project.cancelled_task_paths();
-            let recovery = project
-                .queue
-                .recoverable_tickets(&project.task_documents)
-                .into_iter()
-                .filter(|ticket| !cancelled.contains(ticket))
-                .collect::<Vec<_>>();
+            let recovery = capability_refresh::recoverable_tickets(project, &cancelled);
             if !recovery.is_empty() {
                 if project.queue_lock.is_none() {
                     match crate::core::implementation_queue::Queue::acquire(
@@ -217,11 +213,18 @@ impl KooladeApp {
                     .collect();
                 return;
             }
-            let choice = project
-                .queue
-                .oldest_ready_ticket(&ready)
-                .map(|ticket| Ok(Some(ticket)))
-                .unwrap_or(choice);
+            let recovered = recovery
+                .iter()
+                .find(|ticket| ready.contains(ticket))
+                .cloned()
+                .map(|ticket| Ok(Some(ticket)));
+            let choice = recovered.unwrap_or_else(|| {
+                project
+                    .queue
+                    .oldest_ready_ticket(&ready)
+                    .map(|ticket| Ok(Some(ticket)))
+                    .unwrap_or(choice)
+            });
             match choice {
                 Ok(Some(ticket)) => Some(ticket),
                 Ok(None) => {
@@ -272,10 +275,12 @@ impl KooladeApp {
             if let Screen::Connected(p) = &mut self.screen
                 && !p.active_implementations.contains_key(&ticket)
             {
-                p.queue.blocked.insert(
-                    ticket,
-                    crate::core::implementation::Failure::other(p.queue.last_error.clone()),
-                );
+                if !p.queue.blocked.contains_key(&ticket) {
+                    p.queue.blocked.insert(
+                        ticket,
+                        crate::core::implementation::Failure::other(p.queue.last_error.clone()),
+                    );
+                }
                 if p.queue_lock.is_some() {
                     let _ = p.queue.save(&p.state.planning_store.root);
                 }

@@ -10,6 +10,7 @@ use super::*;
 #[test]
 #[cfg(unix)]
 fn synchronize_requires_persisted_user_and_independent_plan_approval_before_ready() {
+    use sha2::Digest;
     use std::os::unix::fs::PermissionsExt;
 
     use crate::core::{
@@ -36,6 +37,22 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
     environment.set("PATH", std::env::join_paths(path).unwrap());
 
     let mut app = crate::app::root::board_tests::fixture();
+    let local_git_config = temp.path().join("gitconfig");
+    let crate::app::root::Screen::Connected(project) = &app.screen else {
+        panic!("fixture should be connected")
+    };
+    std::fs::write(
+        &local_git_config,
+        format!(
+            "[url \"{}\"]\n\tinsteadOf = https://github.com/zbarno/kool.ade\n",
+            project.state.repo_root.display()
+        ),
+    )
+    .unwrap();
+    environment.set(
+        "GIT_CONFIG_GLOBAL",
+        local_git_config.to_string_lossy().into_owned(),
+    );
     let uid = {
         let crate::app::root::Screen::Connected(project) = &mut app.screen else {
             panic!("fixture should be connected")
@@ -125,11 +142,26 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
         parent_uid: None,
     };
     let markdown = "# Persisted approval fixture\n\n## Intent\n\nExercise persisted self-improvement approval.\n\n## Current Behavior\n\nThe fixture is not yet approved.\n\n## Desired Behavior\n\nThe approved capability remains bound to its stable ID.\n\n## Capability ID\n\nself-improvement-lifecycle\n\n## Scope\n\n- planning approval projection\n\n## Requirements\n\n- Bind the approved capability ID.\n\n## Acceptance Criteria\n\n- AC-001: The capability ID is persisted in the approved snapshot.\n";
-    let snapshot = crate::core::lifecycle::PlanSnapshotV1::from_feature(
+    let approval_contract = "self-improvement test approval contract";
+    crate::core::lifecycle::plan_snapshot::record_author(
+        &planning,
+        &crate::core::lifecycle::plan_snapshot::PlanAuthorProvenanceV1 {
+            feature_uid: identity.uid.clone(),
+            approval_contract_sha256: format!(
+                "{:x}",
+                sha2::Sha256::digest(approval_contract.as_bytes())
+            ),
+            author_run_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+            author_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        },
+    )
+    .unwrap();
+    let snapshot = crate::core::lifecycle::plan_snapshot::from_feature_with_author(
+        &planning,
         &feature_id,
         &identity,
         markdown,
-        "self-improvement test approval contract",
+        approval_contract,
     )
     .unwrap();
     let (snapshot_path, snapshot_bytes, snapshot_check) =
@@ -242,7 +274,22 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
     assert!(projected.clone_uid.is_none());
     assert_app_idle(&mut app);
 
-    let user = user_approval(&snapshot_uid, &hash);
+    let mut user = user_approval(&snapshot_uid, &hash);
+    user.evidence_refs = vec![
+        format!("plan:{snapshot_uid}"),
+        format!(
+            "product-spec:{}",
+            crate::core::lifecycle::product_spec::current_product_hash(&planning).unwrap()
+        ),
+    ];
+    let (path, bytes, check) = crate::core::lifecycle::plan_snapshot::user_confirmation_change(
+        &planning, &snapshot, &user,
+    )
+    .unwrap()
+    .unwrap();
+    planning
+        .transaction_with_record_revisions(&[(path, bytes)], &[check])
+        .unwrap();
     let feature = lifecycle
         .apply_feature_event(
             &feature_uid,
@@ -257,7 +304,15 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
     assert!(projected.clone_uid.is_none());
     assert_app_idle(&mut app);
 
-    let mut forged_review = independent_plan_review(&feature_uid, &snapshot_uid, &hash);
+    let author_run_id = snapshot.author_run_id.as_deref().unwrap();
+    let author_session_id = snapshot.author_session_id.as_deref().unwrap();
+    let mut forged_review = independent_plan_review(
+        &feature_uid,
+        &snapshot_uid,
+        &hash,
+        author_run_id,
+        author_session_id,
+    );
     forged_review.reviewer_run_id = forged_review.author_run_id.clone();
     forged_review.reviewer_session_id = forged_review.author_session_id.clone();
     assert!(
@@ -277,8 +332,21 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
     assert!(projected.clone_uid.is_none());
     assert_app_idle(&mut app);
 
-    let review = independent_plan_review(&feature_uid, &snapshot_uid, &hash);
+    let review = independent_plan_review(
+        &feature_uid,
+        &snapshot_uid,
+        &hash,
+        author_run_id,
+        author_session_id,
+    );
     let review_uid = review.receipt_uid.clone();
+    let (path, bytes, check) =
+        crate::core::lifecycle::plan_snapshot::review_change(&planning, &snapshot, &review)
+            .unwrap()
+            .unwrap();
+    planning
+        .transaction_with_record_revisions(&[(path, bytes)], &[check])
+        .unwrap();
     let feature = lifecycle
         .apply_feature_event(
             &feature_uid,
@@ -335,14 +403,23 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
         )
         .unwrap();
     let task_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    let task_text = format!(
+        "# Execute the approved lifecycle task\n\nFeature: {feature_id}\n\n## Acceptance Criteria\n\n- The local worker output exists.\n"
+    );
+    let task_spec_sha256 = format!(
+        "{:x}",
+        sha2::Sha256::digest(
+            serde_json::to_vec(&(1_u16, hash.as_str(), task_text.as_str())).unwrap()
+        )
+    );
     lifecycle
         .create_task(
             &TaskRecord {
                 schema_version: 1,
                 task_uid: task_uid.clone(),
                 feature_uid: feature_uid.clone(),
-                planning_item_uid: None,
-                task_spec_sha256: None,
+                planning_item_uid: Some(task_uid.clone()),
+                task_spec_sha256: Some(task_spec_sha256),
                 parent_task_uid: None,
                 subtask_uids: vec![],
                 dependency_task_uids: vec![],
@@ -480,7 +557,14 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
     assert!(projected.clone_uid.is_none());
     assert_app_idle(&mut app);
 
-    clone_dispatch::verify_clone_dispatch(&mut app, &lifecycle, &runs, &run_uid, &task_uid);
+    clone_dispatch::verify_clone_dispatch(
+        &mut app,
+        &lifecycle,
+        &runs,
+        &run_uid,
+        &task_uid,
+        &feature_id,
+    );
     review_qa::verify_reviewer_and_qa_projection(&mut app, &lifecycle, &runs, &run_uid, &task_uid);
 }
 

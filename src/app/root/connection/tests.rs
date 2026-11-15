@@ -201,5 +201,7 @@ fn connect_banner_does_not_repeat_a_generic_validation_error() {
     );
 }
 
+#[path = "tests/native_feature_recovery.rs"]
+mod native_feature_recovery;
 #[path = "tests/restored_investigation.rs"]
 mod restored_investigation;

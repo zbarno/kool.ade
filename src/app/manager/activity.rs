@@ -30,6 +30,7 @@ pub struct WorkspaceActivity {
     pub(crate) operational_recovery_worker: Option<super::operational_recovery::NativeWorker>,
     pub(crate) saved_reply_dispatch_blockers: BTreeMap<String, String>,
     pub(crate) last_manager_error: Option<String>,
+    pub(crate) manager_recovery_checked: BTreeMap<String, Instant>,
     pub(crate) pending_baseline_review: Option<super::BaselineReviewRequest>,
     /// One queued Planner v4 pass, armed only by a saved clarification answer.
     pub(crate) pending_clarification_planner: Option<(String, u64)>,

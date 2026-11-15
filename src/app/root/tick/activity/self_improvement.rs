@@ -10,6 +10,7 @@ use crate::{
     },
 };
 mod pr_evidence;
+mod repository_identity;
 mod review;
 mod target;
 mod task_evidence;
@@ -230,7 +231,7 @@ pub(super) fn synchronize_run(
             && implementation.task_repository_kind == TaskRepositoryKind::Clone
             && implementation.task_repository_ready
             && implementation.source_commit.as_deref() == Some(run.source_sha.as_str())
-            && implementation.repository_id.as_deref() == Some(run.target_repository_uid.as_str())
+            && repository_identity::implementation_matches(project, implementation, &run)
             && implementation.source_branch.as_deref() == run.source_ref.as_deref()
             && implementation.destination_branch.as_deref() == run.destination_ref.as_deref()
             && implementation.repository_identity.is_some()

@@ -82,6 +82,10 @@ impl Runner {
         if let Some(executor) = super::test_verification_executor() {
             return executor(cwd, command, workspace);
         }
+        #[cfg(test)]
+        if let Some(result) = super::scoped_test_verification_executor(cwd, command, workspace) {
+            return result;
+        }
         let profile = if cwd.join("Cargo.toml").is_file() {
             crate::execution::docker::images::RuntimeProfile::Rust
         } else if cwd.join("package.json").is_file() {

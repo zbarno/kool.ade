@@ -4,11 +4,12 @@ use sha2::{Digest, Sha256};
 #[path = "pr_work.rs"]
 mod pr_work;
 
-/// Production boundary: a Python-only source workspace can traverse task review,
-/// persisted QA evidence, spec reconciliation and PR work creation without a
-/// language-specific build system. Unit tests cannot prove cross-store recovery.
-/// Deterministic in-process adapters need no Docker/model API; rootless
-/// candidate-image runs cover real UI interactions.
+/// Production boundary: a Python-only source workspace traverses approved plan,
+/// task review, persisted QA, spec reconciliation, explicit PR authorization,
+/// provider publication state, and TaskIntent projection. Unit tests cannot
+/// prove those stores and the board read model converge. Synthetic local stores
+/// and commits only; no network, Docker, or model API. Setup cost is one Git
+/// fixture and local lifecycle records.
 
 #[test]
 fn qa_finding_repairs_new_code_repasses_and_reconciles_once_to_pr_work_item() {
@@ -56,15 +57,12 @@ fn qa_finding_repairs_new_code_repasses_and_reconciles_once_to_pr_work_item() {
     let plan_hash = feature.approved_plan_sha256.unwrap();
     let task_uid = id();
     let child_uid = id();
-    lifecycle
-        .create_task(&task(&feature_uid, &task_uid, &plan_hash, None), &id())
-        .unwrap();
-    lifecycle
-        .create_task(
-            &task(&feature_uid, &child_uid, &plan_hash, Some(task_uid.clone())),
-            &id(),
-        )
-        .unwrap();
+    let mut parent_task = task(&feature_uid, &task_uid, &plan_hash, None);
+    parent_task.planning_item_uid = Some(task_uid.clone());
+    lifecycle.create_task(&parent_task, &id()).unwrap();
+    let mut child_task = task(&feature_uid, &child_uid, &plan_hash, Some(task_uid.clone()));
+    child_task.planning_item_uid = Some(child_uid.clone());
+    lifecycle.create_task(&child_task, &id()).unwrap();
     parent_subtasks::complete_subtask(temp.path(), &store, &lifecycle, &feature_uid, &child_uid);
 
     let mut task_record = lifecycle.load_task(&task_uid).unwrap();
@@ -285,4 +283,12 @@ fn qa_finding_repairs_new_code_repasses_and_reconciles_once_to_pr_work_item() {
         spec_receipt,
         work_uid: &work_uid,
     });
+
+    pr_work::authorize_publish_and_assert_task_intent(
+        &reopened,
+        &reopened_store,
+        &done,
+        &work_uid,
+        &feature_uid,
+    );
 }

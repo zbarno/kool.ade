@@ -1,5 +1,6 @@
 use super::*;
 
+mod capability_refresh;
 mod queue_state;
 
 impl KooladeApp {
@@ -187,6 +188,11 @@ impl KooladeApp {
                     return;
                 }
             };
+            let Some(harness) =
+                capability_refresh::select_for_ticket(p, &ticket, &mut self.task_harness)
+            else {
+                return;
+            };
             let Some(queue_start) = queue_state::begin(p, &ticket, manual) else {
                 return;
             };
@@ -249,19 +255,6 @@ impl KooladeApp {
             p.activity.mark_ticket_dirty(&ticket);
             p.save_task_activity(&ticket);
             p.bind_task_conversation_identities();
-            let task_routes = p
-                .task_documents
-                .iter()
-                .find(|doc| doc.path == ticket)
-                .and_then(|doc| doc.metadata.as_ref())
-                .map(|metadata| metadata.routing_overrides.clone())
-                .unwrap_or_default();
-            let harness = super::super::configured_harness_for_project_task(
-                &mut self.task_harness,
-                Some(crate::persistence::harness_settings::IMPLEMENTATION),
-                &p.state.harness_routes.routes,
-                &task_routes,
-            );
             let route_label = harness.label();
             if let Some(progress) = p.activity.tasks.get_mut(&ticket) {
                 progress.selected_route = Some(route_label.clone());

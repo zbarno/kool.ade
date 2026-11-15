@@ -187,7 +187,7 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
                     {
                         (
                             crate::core::planning_work::WorkStatus::Todo,
-                            "Approved: the independent PlanReviewer approved this exact plan snapshot. Task generation is ready when requested.".into(),
+                            "Approved: the independent PlanReviewer approved this exact plan snapshot. Task generation starts automatically once required repository Git intents are approved.".into(),
                         )
                     } else if approved && let Ok(Some(url)) = &publication {
                         (

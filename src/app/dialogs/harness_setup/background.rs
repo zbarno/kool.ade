@@ -48,6 +48,10 @@ pub(super) fn refresh_in_flight() -> bool {
         .is_some_and(|worker| !worker.is_finished())
 }
 
+pub(crate) fn refresh_in_flight_for_task() -> bool {
+    refresh_in_flight()
+}
+
 /// An unroutable saved provider requests verification; no probe runs on the
 /// caller's thread, and the existing route is never silently changed.
 pub(crate) fn request_refresh() {
@@ -212,6 +216,11 @@ pub(crate) fn poll_auto_refresh() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[path = "automatic_refresh.rs"]
+    mod automatic_refresh;
+
     #[test]
     fn startup_sweep_is_one_shot_and_later_sweeps_need_a_request() {
         // The app-start sweep always starts ...

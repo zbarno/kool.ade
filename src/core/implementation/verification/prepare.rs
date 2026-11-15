@@ -3,6 +3,7 @@ mod checks;
 
 #[allow(clippy::too_many_arguments)] // These are run-scoped policies passed through verification.
 pub(in crate::core::implementation) fn prepare_verified(
+    planning_store: Option<&crate::artifacts::planning_store::PlanningStore>,
     repo: &Path,
     dir: &Path,
     state: &mut Implementation,
@@ -298,7 +299,7 @@ pub(in crate::core::implementation) fn prepare_verified(
                 "Automatically correcting attempt {attempt}: {feedback}"
             ));
         };
-        return commit::finalize_verified(dir, state, runner, report, &head);
+        return commit::finalize_verified(planning_store, dir, state, runner, report, &head);
     }
     Ok(())
 }

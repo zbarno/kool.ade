@@ -79,7 +79,7 @@ fn blocked_retry_and_running_state_follow_uid_after_rename() {
 
     let path = directory(&root).unwrap().join("koolade-queue.json");
     let stored: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(stored["schemaVersion"], 5);
+    assert_eq!(stored["schemaVersion"], 6);
     assert!(stored["tasks"].get(&current.uid).is_some());
     assert!(stored["tasks"].get(&historical.uid).is_some());
     assert!(

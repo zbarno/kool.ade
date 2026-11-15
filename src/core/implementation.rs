@@ -21,6 +21,8 @@ mod repair_context;
 pub(crate) mod report;
 mod repository_cache;
 mod runner;
+#[cfg(test)]
+pub(crate) use runner::install_scoped_test_verification_executor;
 mod self_improvement;
 mod state;
 mod state_paths;

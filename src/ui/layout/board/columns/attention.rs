@@ -6,6 +6,7 @@ use std::cmp::Reverse;
 pub(super) enum Kind {
     WaitingOnUser,
     Blocked,
+    Recovering,
 }
 
 #[cfg(test)]
@@ -43,6 +44,7 @@ pub(super) fn badge(ui: &mut egui::Ui, kind: Kind) {
     let (label, color) = match kind {
         Kind::WaitingOnUser => ("Waiting on user", theme::WARNING),
         Kind::Blocked => ("Blocked", theme::TEXT_DIM),
+        Kind::Recovering => ("Recovering", theme::ACCENT),
     };
     theme::badge(ui, label, color.gamma_multiply(0.14), color);
 }
@@ -79,6 +81,9 @@ fn recovery_kind(recovery: crate::core::implementation::RecoveryDisposition) -> 
     match recovery {
         crate::core::implementation::RecoveryDisposition::UserAction
         | crate::core::implementation::RecoveryDisposition::ExplicitResume => Kind::WaitingOnUser,
+        crate::core::implementation::RecoveryDisposition::AwaitCapabilityRefresh => {
+            Kind::Recovering
+        }
         crate::core::implementation::RecoveryDisposition::AutomaticRetry
         | crate::core::implementation::RecoveryDisposition::DoNotRetry => Kind::Blocked,
     }
