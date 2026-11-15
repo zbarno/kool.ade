@@ -32,6 +32,91 @@ pub(super) fn assert_no_network_device(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Require the complete live PCI graph to match the small q35 device set used
+/// by the R1 guest. Unknown PCI devices can represent host passthrough and fail
+/// closed even if they are not network-class devices.
+pub(super) fn assert_approved_pci_devices(path: &Path) -> Result<(), String> {
+    let stream = UnixStream::connect(path).map_err(|error| error.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| error.to_string())?;
+    let mut reader = BufReader::new(stream);
+    let greeting = read_json_line(&mut reader)?;
+    if greeting.get("QMP").is_none() {
+        return Err("QEMU did not provide a QMP greeting".into());
+    }
+    execute(&mut reader, "qmp_capabilities", 1)?;
+    let pci = execute(&mut reader, "query-pci", 2)?;
+    let buses = pci
+        .get("return")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "QMP query-pci returned no device graph".to_owned())?;
+    validate_approved_pci_devices(buses)
+}
+
+fn validate_approved_pci_devices(buses: &[serde_json::Value]) -> Result<(), String> {
+    let actual = pci_fingerprints(buses)?;
+    let mut expected = vec![
+        (0x0100, 0x1af4, 0x1001), // virtio block device
+        (0x0106, 0x8086, 0x2922), // q35 SATA controller
+        (0x0300, 0x1af4, 0x1050), // virtio VGA
+        (0x0600, 0x8086, 0x29c0), // q35 host bridge
+        (0x0601, 0x8086, 0x2918), // q35 ISA bridge
+        (0x0780, 0x1af4, 0x1003), // virtio serial
+        (0x0c05, 0x8086, 0x2930), // q35 SMBus
+    ];
+    expected.sort_unstable();
+    if actual != expected {
+        return Err(format!(
+            "QEMU PCI graph has unexpected or missing devices: {actual:?}"
+        ));
+    }
+    Ok(())
+}
+
+fn pci_fingerprints(buses: &[serde_json::Value]) -> Result<Vec<(u64, u64, u64)>, String> {
+    fn visit_devices(
+        devices: &[serde_json::Value],
+        found: &mut Vec<(u64, u64, u64)>,
+    ) -> Result<(), String> {
+        for device in devices {
+            let fingerprint = (
+                device
+                    .pointer("/class_info/class")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or_else(|| "QMP PCI device has no class code".to_owned())?,
+                device
+                    .pointer("/id/vendor")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or_else(|| "QMP PCI device has no vendor ID".to_owned())?,
+                device
+                    .pointer("/id/device")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or_else(|| "QMP PCI device has no device ID".to_owned())?,
+            );
+            found.push(fingerprint);
+            if let Some(nested) = device
+                .pointer("/pci_bridge/devices")
+                .and_then(serde_json::Value::as_array)
+            {
+                visit_devices(nested, found)?;
+            }
+        }
+        Ok(())
+    }
+
+    let mut found = Vec::new();
+    for bus in buses {
+        let devices = bus
+            .get("devices")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| "QMP PCI bus has no device list".to_owned())?;
+        visit_devices(devices, &mut found)?;
+    }
+    found.sort_unstable();
+    Ok(found)
+}
+
 /// Check the live QEMU block graph exposes only this session's disposable
 /// overlay and its signed, read-only base image. This catches unexpected host
 /// files attached through QEMU even when command construction looked correct.
@@ -149,6 +234,45 @@ fn contains_network_device(value: &serde_json::Value) -> bool {
         serde_json::Value::Array(values) => values.iter().any(contains_network_device),
         serde_json::Value::Object(values) => values.values().any(contains_network_device),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod pci_tests {
+    use super::*;
+
+    fn bus_with(devices: &[(u64, u64, u64)]) -> serde_json::Value {
+        serde_json::json!({
+            "devices": devices
+                .iter()
+                .map(|(class, vendor, device)| serde_json::json!({
+                    "class_info": {"class": class},
+                    "id": {"vendor": vendor, "device": device}
+                }))
+                .collect::<Vec<_>>()
+        })
+    }
+
+    const R1_Q35_DEVICES: &[(u64, u64, u64)] = &[
+        (0x0100, 0x1af4, 0x1001),
+        (0x0106, 0x8086, 0x2922),
+        (0x0300, 0x1af4, 0x1050),
+        (0x0600, 0x8086, 0x29c0),
+        (0x0601, 0x8086, 0x2918),
+        (0x0780, 0x1af4, 0x1003),
+        (0x0c05, 0x8086, 0x2930),
+    ];
+
+    #[test]
+    fn live_pci_graph_accepts_only_the_r1_q35_device_set() {
+        assert!(validate_approved_pci_devices(&[bus_with(R1_Q35_DEVICES)]).is_ok());
+    }
+
+    #[test]
+    fn live_pci_graph_rejects_unexpected_host_passthrough_devices() {
+        let mut devices = R1_Q35_DEVICES.to_vec();
+        devices.push((0x0300, 0x10de, 0x1c82));
+        assert!(validate_approved_pci_devices(&[bus_with(&devices)]).is_err());
     }
 }
 

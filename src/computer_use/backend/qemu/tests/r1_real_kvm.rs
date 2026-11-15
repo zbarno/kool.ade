@@ -251,6 +251,8 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         provisioning_ms = provisioning_started.elapsed().as_millis();
         qmp::assert_no_network_device(&session_directory.join("qemu-qmp.sock"))
             .map_err(|error| format!("disabled-network QEMU device graph: {error}"))?;
+        qmp::assert_approved_pci_devices(&session_directory.join("qemu-qmp.sock"))
+            .map_err(|error| format!("QEMU PCI device isolation: {error}"))?;
         qmp::assert_only_approved_block_files(
             &session_directory.join("qemu-qmp.sock"),
             &overlay_path,
