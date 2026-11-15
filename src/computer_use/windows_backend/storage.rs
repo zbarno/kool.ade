@@ -112,6 +112,12 @@ impl WindowsVmStorage {
         }
         let listener = super::transport::WindowsAfUnixListener::bind(&socket_path)?;
         let current_sid = super::process::current_user_sid()?;
+        if let Err(error) =
+            tree::set_new_guest_socket_owner(&self.transport_sessions, &socket_path, &current_sid)
+        {
+            drop(listener);
+            return Err(error);
+        }
         if let Err(error) = tree::lock_existing_descendants(&self.transport_sessions, &current_sid)
         {
             drop(listener);
