@@ -86,6 +86,9 @@ fn opening_existing_storage_rejects_world_access_descendant_acls() {
     assert!(!private_acl(&legacy_file, &sid));
 }
 
+#[path = "af_unix_tests.rs"]
+mod af_unix_tests;
+
 fn private_acl(path: &Path, sid: &[u8]) -> bool {
     let wide = path
         .as_os_str()
