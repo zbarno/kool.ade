@@ -27,16 +27,16 @@ use windows_sys::Win32::{
 fn storage_accepts_only_the_private_exact_session_af_unix_leaf() {
     let root = ShortStorageRoot::new();
     let session = session_path(root.path());
+    let sid = current_sid();
+    set_directory_private_acl(&session, &sid);
     let path = session.join("guest-control-v1.sock");
     let socket = BoundUnixSocket::new(&path);
-    let sid = current_sid();
     assert!(super::super::tree::is_expected_guest_socket(
         root.path(),
         &path
     ));
     let handle = open_leaf_handle(&path);
     set_socket_owner(handle, &sid);
-    super::super::set_private_dacl(handle, &sid).expect("set private socket ACL");
     assert_eq!(
         socket_owner_sid(handle),
         sid_string(&sid),
@@ -70,10 +70,9 @@ fn storage_rejects_af_unix_socket_with_wrong_name_or_ancestor() {
 fn socket_validation_rejects_wrong_tag_owner_and_acl() {
     let root = ShortStorageRoot::new();
     let session = session_path(root.path());
+    let sid = current_sid();
+    set_directory_private_acl(&session, &sid);
     let path = session.join("guest-control-v1.sock");
-    let sid = super::super::super::process::current_user_sid()
-        .expect("current SID")
-        .to_vec();
 
     // A symbolic link at the permitted name has the wrong reparse tag.
     let target = session.join("target.bin");
@@ -107,7 +106,6 @@ fn socket_validation_rejects_wrong_tag_owner_and_acl() {
     let socket = BoundUnixSocket::new(&path);
     let handle = open_leaf_handle(&path);
     set_socket_owner(handle, &sid);
-    super::super::set_private_dacl(handle, &sid).expect("set private socket ACL");
     assert_eq!(
         socket_owner_sid(handle),
         sid_string(&sid),
@@ -174,6 +172,29 @@ fn set_socket_owner(handle: HANDLE, sid: &[u8]) {
         )
     };
     assert_eq!(status, 0, "set AF_UNIX owner SID");
+}
+
+fn set_directory_private_acl(path: &Path, sid: &[u8]) {
+    let wide = path
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    // SAFETY: path is NUL-terminated and the handle opens the directory itself.
+    let handle = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            READ_CONTROL | WRITE_DAC,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            null_mut(),
+        )
+    };
+    assert!(!handle.is_null() && handle != INVALID_HANDLE_VALUE);
+    super::super::set_private_dacl(handle, sid).expect("set private session directory ACL");
+    unsafe { CloseHandle(handle) };
 }
 
 fn sid_string(sid: &[u8]) -> String {
