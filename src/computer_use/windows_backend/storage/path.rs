@@ -66,7 +66,7 @@ pub(super) fn local_app_data() -> io::Result<PathBuf> {
 
 pub(super) fn validate_directory_chain(path: &Path, current_sid: &[u8]) -> io::Result<()> {
     let mut current = PathBuf::new();
-    for component in path.components() {
+    for (component_index, component) in path.components().enumerate() {
         match component {
             Component::Prefix(prefix) if matches!(prefix.kind(), Prefix::Disk(_)) => {
                 current.push(component.as_os_str());
@@ -88,7 +88,8 @@ pub(super) fn validate_directory_chain(path: &Path, current_sid: &[u8]) -> io::R
                         "Local AppData must be on a fixed local volume",
                     ));
                 }
-                super::validate_directory(&current, current_sid, false, false, false, true)?;
+                super::validate_directory(&current, current_sid, false, false, false, true)
+                    .map_err(|error| component_validation_error(component_index, error))?;
             }
             Component::Normal(_) => {
                 current.push(component.as_os_str());
@@ -99,7 +100,8 @@ pub(super) fn validate_directory_chain(path: &Path, current_sid: &[u8]) -> io::R
                     current == path,
                     false,
                     true,
-                )?;
+                )
+                .map_err(|error| component_validation_error(component_index, error))?;
             }
             Component::CurDir | Component::ParentDir => {
                 return Err(invalid_data("Local AppData contains a non-canonical path"));
@@ -107,6 +109,13 @@ pub(super) fn validate_directory_chain(path: &Path, current_sid: &[u8]) -> io::R
         }
     }
     Ok(())
+}
+
+fn component_validation_error(index: usize, error: io::Error) -> io::Error {
+    io::Error::new(
+        error.kind(),
+        format!("Local AppData path component {index} failed validation: {error}"),
+    )
 }
 
 fn invalid_data(message: &'static str) -> io::Error {
