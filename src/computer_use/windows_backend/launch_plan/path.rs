@@ -1,3 +1,5 @@
+#[cfg(windows)]
+use std::path::PathBuf;
 use std::{ffi::OsString, path::Path};
 
 use super::WindowsLaunchBlocker;

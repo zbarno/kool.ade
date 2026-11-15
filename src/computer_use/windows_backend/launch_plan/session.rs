@@ -6,7 +6,7 @@ impl WindowsWpxLaunchPlan {
     pub(crate) fn from_authorized_session(
         session: &crate::computer_use::ComputerSessionV1,
         overlay: &crate::computer_use::guest_image::GuestImageOverlayV1,
-        storage: &super::storage::WindowsVmStorage,
+        storage: &super::super::storage::WindowsVmStorage,
         qemu_executable: &Path,
         boot_config: &Path,
         host_logical_processors: u16,
