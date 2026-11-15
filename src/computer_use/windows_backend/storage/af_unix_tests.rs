@@ -13,7 +13,9 @@ use windows_sys::Win32::{
         closesocket, socket,
     },
     Security::{
+        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL_SIZE_INFORMATION, AclSizeInformation,
         Authorization::{ConvertSidToStringSidW, GetSecurityInfo, SE_FILE_OBJECT, SetSecurityInfo},
+        DACL_SECURITY_INFORMATION, GetAce, GetAclInformation, GetSecurityDescriptorDacl,
         OWNER_SECURITY_INFORMATION,
     },
     Storage::FileSystem::{
@@ -41,6 +43,12 @@ fn storage_accepts_only_the_private_exact_session_af_unix_leaf() {
         socket_owner_sid(handle),
         sid_string(&sid),
         "AF_UNIX owner SID"
+    );
+    assert!(
+        super::super::security::preexisting_acl_is_safe_to_lock(handle, &sid)
+            .expect("validate socket ACL"),
+        "AF_UNIX ACL: {}",
+        socket_acl_summary(handle)
     );
     super::super::tree::validate_guest_socket_handle(handle, &sid)
         .expect("accept exact user-owned AF_UNIX socket with private ACL");
@@ -111,6 +119,12 @@ fn socket_validation_rejects_wrong_tag_owner_and_acl() {
         sid_string(&sid),
         "AF_UNIX owner SID"
     );
+    assert!(
+        super::super::security::preexisting_acl_is_safe_to_lock(handle, &sid)
+            .expect("validate socket ACL"),
+        "AF_UNIX ACL: {}",
+        socket_acl_summary(handle)
+    );
     let mut wrong_sid = sid.clone();
     let last_sid_byte = wrong_sid.last_mut().expect("non-empty SID");
     *last_sid_byte ^= 0xff;
@@ -156,6 +170,74 @@ fn socket_owner_sid(handle: HANDLE) -> String {
     };
     unsafe { LocalFree(descriptor.cast()) };
     result
+}
+
+fn socket_acl_summary(handle: HANDLE) -> String {
+    let mut dacl = null_mut();
+    let mut descriptor = null_mut();
+    let status = unsafe {
+        GetSecurityInfo(
+            handle,
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            null_mut(),
+            null_mut(),
+            &mut dacl,
+            null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != 0 {
+        return format!("GetSecurityInfo status={status}");
+    }
+    let mut present = 0;
+    let mut acl = null_mut();
+    let mut defaulted = 0;
+    let valid =
+        unsafe { GetSecurityDescriptorDacl(descriptor, &mut present, &mut acl, &mut defaulted) }
+            != 0;
+    let mut info = ACL_SIZE_INFORMATION::default();
+    if !valid
+        || present == 0
+        || acl.is_null()
+        || unsafe {
+            GetAclInformation(
+                acl,
+                (&mut info as *mut ACL_SIZE_INFORMATION).cast(),
+                std::mem::size_of::<ACL_SIZE_INFORMATION>() as u32,
+                AclSizeInformation,
+            )
+        } == 0
+    {
+        unsafe { LocalFree(descriptor.cast()) };
+        return "missing or invalid DACL".to_owned();
+    }
+    let mut entries = Vec::new();
+    for index in 0..info.AceCount {
+        let mut ace = null_mut();
+        if unsafe { GetAce(acl, index, &mut ace) } == 0 || ace.is_null() {
+            entries.push(format!("ACE {index}: unreadable"));
+            continue;
+        }
+        let header = unsafe { &*ace.cast::<ACE_HEADER>() };
+        if header.AceType != 0 {
+            entries.push(format!(
+                "ACE {index}: type={} flags={:#x}",
+                header.AceType, header.AceFlags
+            ));
+            continue;
+        }
+        let allowed = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
+        let sid = unsafe { ace.cast::<u8>().add(8).cast::<core::ffi::c_void>() };
+        entries.push(format!(
+            "ACE {index}: flags={:#x} mask={:#x} sid={}",
+            header.AceFlags,
+            allowed.Mask,
+            sid_string_from_ptr(sid)
+        ));
+    }
+    unsafe { LocalFree(descriptor.cast()) };
+    format!("count={} [{}]", info.AceCount, entries.join("; "))
 }
 
 fn set_socket_owner(handle: HANDLE, sid: &[u8]) {
