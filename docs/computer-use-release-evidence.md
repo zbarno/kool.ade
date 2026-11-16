@@ -297,3 +297,46 @@ of 1,187,405,824 and 1,174,798,336 bytes, and 6 ms QEMU crash recovery in both.
 This establishes one real-host process-limit enforcement sample. Repeated,
 concurrent-session, memory-pressure, and multi-host exhaustion remain untested;
 no hosted `computer-use-kvm` runner is registered.
+
+On 2026-11-16, the current `main` revision at the time of this run
+(`51a7472c8ed5b4be3478945527468672e19984e1`) passed both configured QA modes
+in separate fresh generation-19 guest sessions on the local Pop!_OS 24.04
+Linux x86_64 host (QEMU 8.2.2, writable `/dev/kvm`, delegated cgroup v2).
+Each command ran inside a delegated systemd user scope with
+`KOOLADE_COMPUTER_USE_R1_REAL_KVM=1` and the synthetic host-secret canary:
+
+```sh
+cargo +1.98.1 build --locked \
+  --bin koolade-computer-use-qa-defect-fixture \
+  --bin koolade-computer-use-qa-corrected-fixture
+fixture_dir="$(cargo +1.98.1 metadata --locked --no-deps --format-version=1 | jq -r .target_directory)/debug"
+systemd-run --user --scope --property=Delegate=yes \
+  --setenv=KOOLADE_COMPUTER_USE_R1_REAL_KVM=1 \
+  --setenv=KOOLADE_R1_QA_BUILD=defect \
+  --setenv=KOOLADE_R1_REAL_KVM_HOST_SECRET_CANARY=synthetic-canary \
+  --setenv="KOOLADE_R1_QA_DEFECT_FIXTURE=$fixture_dir/koolade-computer-use-qa-defect-fixture" \
+  cargo +1.98.1 test --locked --lib computer_use_r1_real_kvm_acceptance -- --nocapture
+```
+
+The corrected-build run used the same command with
+`KOOLADE_R1_QA_BUILD=corrected` and
+`--setenv="KOOLADE_R1_QA_CORRECTED_FIXTURE=$fixture_dir/koolade-computer-use-qa-corrected-fixture"`.
+Both tests passed. The seeded-defect run completed in 134.13s and recorded the
+expected failed destination assertion with screenshot SHA-256
+`58905cd56e59b04c4068f320b0d6c6486286432dd8ed224e2c9707374415127c`; the
+corrected run completed in 135.67s and recorded the expected passing assertion
+with screenshot SHA-256
+`69986be27f63ebf60374fa22d1a002bd55afd3ab4b5913c631d4d760dd688221`. Both
+authenticated the guest companion, captured 1280x800 guest and display frames,
+exercised takeover and handback, triggered and recovered a controller restart,
+verified the `pids.max` denial counter increased from 0 to 1, recovered a QEMU
+process crash, and removed the session resources. Provisioning took 44.245s
+and 45.765s, screen observation 124ms and 120ms, peak session memory
+1,196,834,816 and 1,200,576,640 bytes, controller restart recovery 109ms and
+110ms, and cleanup 10ms in both runs.
+
+These runs add single-host local evidence on current `main`. They do not
+replace the unavailable hosted KVM run, broad guest/host escape testing,
+concurrent-session or memory-pressure stress, or multi-host evidence. Those
+technical gaps remain open; owner review and manual validation do not block
+implementation closure.
