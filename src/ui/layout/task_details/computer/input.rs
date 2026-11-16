@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "input/tests.rs"]
+#[cfg(test)]
+mod tests;
+
 pub(super) fn paint_frame(
     ui: &mut egui::Ui,
     surface: &mut dyn Surface,
@@ -22,11 +26,7 @@ pub(super) fn paint_frame(
         color,
         egui::TextureOptions::LINEAR,
     );
-    let available = ui.available_width().max(1.0);
-    let scale = (available / size[0] as f32)
-        .min(480.0 / size[1] as f32)
-        .min(1.0);
-    let image_size = egui::vec2(size[0] as f32 * scale, size[1] as f32 * scale);
+    let image_size = viewer_size(size, ui.available_width());
     let interactive =
         session.control_owner == crate::computer_use::mcp::ComputerUseControlOwnerV1::Human;
     let sense = if interactive {
@@ -50,12 +50,11 @@ pub(super) fn paint_frame(
         && (response.dragged() || response.clicked() || response.drag_stopped())
     {
         let local = position - response.rect.min;
-        let x = (local.x / image_size.x * session.frame_width as f32)
-            .round()
-            .clamp(0.0, session.frame_width.saturating_sub(1) as f32) as u16;
-        let y = (local.y / image_size.y * session.frame_height as f32)
-            .round()
-            .clamp(0.0, session.frame_height.saturating_sub(1) as f32) as u16;
+        let [x, y] = guest_pointer_position(
+            local,
+            image_size,
+            [session.frame_width, session.frame_height],
+        );
         let buttons = if response.dragged() || response.clicked() {
             1
         } else {
@@ -85,6 +84,34 @@ pub(super) fn paint_frame(
     } else if response.clicked() {
         response.request_focus();
     }
+}
+
+fn viewer_size(frame: [usize; 2], available_width: f32) -> egui::Vec2 {
+    if frame[0] == 0 || frame[1] == 0 {
+        return egui::Vec2::ZERO;
+    }
+    let available = available_width.max(1.0);
+    let scale = (available / frame[0] as f32)
+        .min(480.0 / frame[1] as f32)
+        .min(1.0);
+    egui::vec2(frame[0] as f32 * scale, frame[1] as f32 * scale)
+}
+
+fn guest_pointer_position(
+    local: egui::Vec2,
+    rendered: egui::Vec2,
+    guest_frame: [u16; 2],
+) -> [u16; 2] {
+    if rendered.x <= 0.0 || rendered.y <= 0.0 || guest_frame[0] == 0 || guest_frame[1] == 0 {
+        return [0, 0];
+    }
+    let x = (local.x / rendered.x * guest_frame[0] as f32)
+        .round()
+        .clamp(0.0, guest_frame[0].saturating_sub(1) as f32) as u16;
+    let y = (local.y / rendered.y * guest_frame[1] as f32)
+        .round()
+        .clamp(0.0, guest_frame[1].saturating_sub(1) as f32) as u16;
+    [x, y]
 }
 
 fn forward_keyboard(
