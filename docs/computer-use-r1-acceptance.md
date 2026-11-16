@@ -58,6 +58,15 @@ action-sequence correction took 55.44 seconds. The GUI acceptance waits up to
 one second for the guest frame to reflect completed input actions. This is
 one Linux host run, not resource-exhaustion stress evidence.
 
+The 2026-11-16 real-VM QA rerun uses two invocations, each with a fresh
+session and signed guest: the seeded defect was detected, then the corrected
+fixture passed in its own VM. Guest staging allows only one approved app launch
+per session, so reusing the first session would not model a new build retest.
+Both runs authenticated the companion, captured guest/display frames, and
+cleaned up. Exact screenshot digests and timings are in the
+[release evidence matrix](computer-use-release-evidence.md). This is local
+single-host evidence; no hosted KVM runner is registered.
+
 ## Evidence boundary
 
 The host preflight records OS/architecture, tool versions, KVM device

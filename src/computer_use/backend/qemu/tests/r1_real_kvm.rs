@@ -548,7 +548,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
                 unix_time_ms()?,
             )
             .map_err(|error| format!("human takeover authorization: {error:?}"))?;
-        let next_action_sequence = qa_driver::run_seeded_defect(
+        let next_action_sequence = qa_driver::run_seeded_build(
             root,
             &session,
             controller_key_id,

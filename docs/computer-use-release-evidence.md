@@ -221,6 +221,20 @@ passed in 67.98 seconds: provisioning 42.603s, observation 68ms, idle memory
 an additional local single-host run; it does not supply a hosted KVM-runner
 result, corrected real-VM rebuild/retest, or broad escape/stress evidence.
 
+On 2026-11-16, the seeded-failure and corrected-build QA paths each passed in
+their own fresh disposable VM session on the same host and signed generation
+19 image. Separate sessions are required because guest staging permits one
+approved app launch per session. The seeded fixture produced the expected
+failed destination assertion and screenshot digest
+`d75a31b0b73225a1d14eabf418d84897f1f27e422d0437405cf61afeb5036a16`; the
+corrected fixture passed and produced screenshot digest
+`69986be27f63ebf60374fa22d1a002bd55afd3ab4b5913c631d4d760dd688221`. Both
+runs authenticated the guest, captured 1280×800 guest/display frames, and
+cleaned up (149 ms and 144 ms). Provisioning took 42.973 seconds for the seeded
+run and 42.746 seconds for the corrected run. This is a single-host local
+result and does not replace hosted KVM execution, broad escape/stress
+coverage, or the live viewer and recovery gates.
+
 The official real-KVM workflow is manually dispatched on protected `main` and
 requires that runner label. A run with `require_kvm_host=false` is explicitly
 not acceptance evidence. The owner-operated usability walkthrough is not a

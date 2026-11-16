@@ -24,6 +24,10 @@ name = "koolade-computer-use-qa-defect-fixture"
 path = "src/bin/computer_use_qa_gui_fixture.rs"
 
 [[bin]]
+name = "koolade-computer-use-qa-corrected-fixture"
+path = "src/bin/computer_use_qa_gui_fixture.rs"
+
+[[bin]]
 name = "koolade-computer-use-agent"
 path = "src/bin/koolade_computer_use_agent.rs"
 
