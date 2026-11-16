@@ -20,7 +20,8 @@ use crate::computer_use::mcp::ComputerUseCallerV1;
 mod tests;
 
 const PERSONAL_ROLE: &str = "implementer/v1";
-pub(in crate::computer_use::mcp::controller) const PERSONAL_VM_R3_ENABLED: bool = false;
+pub(in crate::computer_use::mcp::controller) const PERSONAL_VM_R3_ENABLED: bool =
+    crate::computer_use::release_gates::personal_vm_r3_enabled();
 const PERSONAL_APPS: [&str; 3] = ["chromium", "file-manager", "text-editor"];
 const PERSONAL_OPERATIONS: [ComputerOperationV1; 8] = [
     ComputerOperationV1::ObserveScreen,

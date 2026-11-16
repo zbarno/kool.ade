@@ -31,10 +31,14 @@ fn ready_provider_and_docker_do_not_mark_a_missing_vm_ready() {
     let tasks = vec![task("setup:cli:codex", State::Verified)];
     let matrix = abilities(&tasks, &[], Some(true), true);
     assert_eq!(matrix[0].availability, Availability::Available);
+    assert_eq!(matrix[1].availability, Availability::Blocked);
+    assert_eq!(matrix[2].availability, Availability::Unavailable);
+    assert_eq!(matrix[3].availability, Availability::Unavailable);
+    assert_eq!(matrix[4].availability, Availability::Blocked);
     assert!(
-        matrix[1..]
+        matrix[5..]
             .iter()
-            .all(|ability| ability.availability == Availability::Blocked)
+            .all(|ability| ability.availability == Availability::Unavailable)
     );
 }
 
@@ -47,7 +51,7 @@ fn vm_unsupported_state_does_not_disable_docker_coding() {
     let matrix = abilities(&tasks, &[], Some(true), true);
     assert_eq!(matrix[0].availability, Availability::Available);
     assert_eq!(matrix[1].availability, Availability::Unsupported);
-    assert_eq!(matrix[2].availability, Availability::Unsupported);
+    assert_eq!(matrix[2].availability, Availability::Unavailable);
 }
 
 #[test]
@@ -61,9 +65,11 @@ fn network_personal_and_viewer_modes_require_independent_verified_tasks() {
     let matrix = abilities(&tasks, &[], Some(false), true);
     assert_eq!(matrix[0].availability, Availability::Blocked);
     assert_eq!(matrix[1].availability, Availability::Available);
-    assert_eq!(matrix[2].availability, Availability::Blocked);
-    assert_eq!(matrix[3].availability, Availability::Available);
+    assert_eq!(matrix[2].availability, Availability::Unavailable);
+    assert_eq!(matrix[3].availability, Availability::Unavailable);
     assert_eq!(matrix[4].availability, Availability::Blocked);
+    assert_eq!(matrix[5].availability, Availability::Unavailable);
+    assert_eq!(matrix[6].availability, Availability::Unavailable);
 }
 
 #[test]
@@ -75,13 +81,31 @@ fn internet_mode_requires_a_verified_restricted_gateway() {
     tasks.push(task("setup:computer:network", State::Verified));
     assert_eq!(
         abilities(&tasks, &[], Some(false), true)[2].availability,
-        Availability::Available
+        Availability::Unavailable
     );
     tasks[4].state = State::NeedsVerification;
     assert_eq!(
         abilities(&tasks, &[], Some(false), true)[2].availability,
-        Availability::Blocked
+        Availability::Unavailable
     );
+}
+
+#[test]
+fn closed_release_gates_are_visible_even_when_readiness_tasks_are_verified() {
+    let tasks = VM_BASE
+        .iter()
+        .map(|id| task(id, State::Verified))
+        .chain([
+            task("setup:computer:network", State::Verified),
+            task("setup:computer:personal-encryption", State::Verified),
+            task("setup:computer:viewer", State::Verified),
+        ])
+        .collect::<Vec<_>>();
+    let matrix = abilities(&tasks, &[], Some(true), true);
+    assert_eq!(matrix[2].availability, Availability::Unavailable);
+    assert_eq!(matrix[3].availability, Availability::Unavailable);
+    assert_eq!(matrix[5].availability, Availability::Unavailable);
+    assert_eq!(matrix[6].availability, Availability::Unavailable);
 }
 
 #[test]

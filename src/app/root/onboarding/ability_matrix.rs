@@ -5,6 +5,7 @@ enum Availability {
     Available,
     Blocked,
     Unsupported,
+    Unavailable,
 }
 
 struct Ability {
@@ -54,7 +55,7 @@ fn abilities(
     checked_domains: &[String],
     docker_ready: Option<bool>,
     scan_current: bool,
-) -> [Ability; 5] {
+) -> [Ability; 7] {
     let mut internet = VM_BASE.to_vec();
     internet.push("setup:computer:network");
     let mut personal = VM_BASE.to_vec();
@@ -78,15 +79,39 @@ fn abilities(
         },
         Ability {
             label: "Internet computer",
-            availability: availability(tasks, checked_domains, &internet),
+            availability: if crate::computer_use::release_gates::internet_research_r2_enabled() {
+                availability(tasks, checked_domains, &internet)
+            } else {
+                Availability::Unavailable
+            },
         },
         Ability {
             label: "Personal encrypted computer",
-            availability: availability(tasks, checked_domains, &personal),
+            availability: if crate::computer_use::release_gates::personal_vm_r3_enabled() {
+                availability(tasks, checked_domains, &personal)
+            } else {
+                Availability::Unavailable
+            },
         },
         Ability {
             label: "Interactive viewer",
             availability: availability(tasks, checked_domains, &viewer),
+        },
+        Ability {
+            label: "Sensitive external actions",
+            availability: if crate::computer_use::release_gates::high_impact_actions_r4_enabled() {
+                Availability::Available
+            } else {
+                Availability::Unavailable
+            },
+        },
+        Ability {
+            label: "Remote computer worker",
+            availability: if crate::computer_use::release_gates::remote_worker_r5_enabled() {
+                Availability::Available
+            } else {
+                Availability::Unavailable
+            },
         },
     ]
     .map(|mut ability| {
@@ -115,6 +140,7 @@ pub(super) fn paint(
                     Availability::Available => "Available",
                     Availability::Blocked => "Blocked · needs verification or setup",
                     Availability::Unsupported => "Unsupported on this host",
+                    Availability::Unavailable => "Unavailable · release checks incomplete",
                 });
                 ui.end_row();
             }

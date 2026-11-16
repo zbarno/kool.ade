@@ -28,6 +28,7 @@ pub use personal_storage::{
 pub(crate) mod macos_backend;
 #[cfg(target_os = "linux")]
 pub(crate) mod process_security;
+pub(crate) mod release_gates;
 pub mod remote_worker;
 #[cfg(any(target_os = "windows", test))]
 pub(crate) mod windows_backend;
