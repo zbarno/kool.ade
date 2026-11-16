@@ -205,3 +205,62 @@ fn revoked_and_expired_catalog_entries_fail_closed() {
         ImageCacheErrorV1::CatalogExpired
     );
 }
+
+#[test]
+fn signed_aarch64_candidate_metadata_validates_but_revoked_image_is_not_downloadable() {
+    let artifact = b"unpromoted aarch64 candidate";
+    let digest = format!("sha256:{:x}", Sha256::digest(artifact));
+    let signer = SigningKey::from_bytes(&[73; 32]);
+    let signer_id = "00000000-0000-4000-8000-000000000073";
+    let catalog = GuestImageManifestV1 {
+        schema_version: 1,
+        catalog_version: "computer-use-images-v1-aarch64-candidate".into(),
+        catalog_generation: 4,
+        issued_at_unix_ms: 1_000_000,
+        expires_at_unix_ms: 2_000_000,
+        signer_key_id: signer_id.into(),
+        images: vec![GuestImageEntryV1 {
+            architecture: ComputerGuestArchitectureV1::Aarch64,
+            image_digest: digest.clone(),
+            image_size_bytes: 4 * 1024 * 1024 * 1024,
+            artifact_size_bytes: artifact.len() as u64,
+            artifact_name: ComputerGuestArchitectureV1::Aarch64.artifact_name().into(),
+            guest_release: "debian-bookworm-arm64-candidate".into(),
+            source_revision: "b".repeat(40),
+            build_recipe_sha256: digest.clone(),
+            sbom_sha256: digest.clone(),
+            build_attestation_sha256: digest.clone(),
+            companion_protocol_version: 1,
+            companion_sha256: digest,
+            status: GuestImageStatusV1::Revoked,
+        }],
+        signature_hex: "0".repeat(128),
+    };
+    let mut catalog = catalog;
+    catalog.signature_hex = catalog
+        .signing_payload_bytes()
+        .map(|bytes| {
+            signer
+                .sign(&bytes)
+                .to_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect()
+        })
+        .unwrap();
+    let trust = GuestImageManifestTrustV1::from_application_pinned_keys(
+        [(signer_id.into(), signer.verifying_key())],
+        1,
+    )
+    .unwrap();
+
+    let verified =
+        verify_guest_image_catalog(&serde_json::to_vec(&catalog).unwrap(), &trust, 1_050_000)
+            .unwrap();
+    assert!(verified.approved_images().next().is_none());
+    assert!(
+        verified
+            .approved_image_for_download(ComputerGuestArchitectureV1::Aarch64)
+            .is_none()
+    );
+}
