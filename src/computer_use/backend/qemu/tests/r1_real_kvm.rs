@@ -34,6 +34,8 @@ mod controller_restart;
 mod host_environment;
 #[path = "r1_real_kvm/performance.rs"]
 mod performance;
+#[path = "r1_real_kvm/process_limit_stress.rs"]
+mod process_limit_stress;
 #[path = "r1_real_kvm/qa_driver.rs"]
 mod qa_driver;
 #[path = "r1_real_kvm/qmp.rs"]
@@ -73,7 +75,10 @@ impl ComputerImageDownloadApprovalV1 for TestImageApproval {
 /// enforced the session's CPU, memory, swap, and task limits. An approved
 /// native QA fixture crosses the P15 bridge and authenticated guest channel,
 /// launches through the guest helper, and runs through the production QA
-/// scenario driver.
+/// scenario driver. A separate child test moves itself into the live VM
+/// cgroup, fills the configured task allowance with bounded worker threads,
+/// and confirms the kernel rejects additional tasks without leaving any behind;
+/// a unit test cannot prove the delegated pids controller enforces that limit.
 #[test]
 fn computer_use_r1_real_kvm_acceptance() {
     if std::env::var(REAL_KVM_ENV).as_deref() != Ok("1") {
@@ -688,6 +693,11 @@ fn run_real_kvm_acceptance(root: &Path, wait_for_controller_restart: bool) -> Re
                 Err(error) => return Err(format!("QEMU display stream: {error:?}")),
             }
         };
+        process_limit_stress::assert_session_task_limit_enforced(
+            &std::env::current_exe()
+                .map_err(|error| format!("locate process-limit test: {error}"))?,
+            &session_cgroup,
+        )?;
         peak_memory_bytes = performance::read_cgroup_value(&session_cgroup, "memory.peak")?;
         println!(
             "R1 real KVM evidence: image={} companion_protocol={} guest_frame={}x{} display_frame={}x{} image_acquire_ms={} provisioning_ms={} screen_observation_ms={} idle_sample_window_ms={} idle_memory_bytes={} idle_cpu_delta_usec={} session_peak_memory_bytes={}",

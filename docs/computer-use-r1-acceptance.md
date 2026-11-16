@@ -83,8 +83,7 @@ cgroup, and overlay were removed. The full seeded-defect acceptance run
 completed in 136.40 seconds and the corrected-build run in 132.75 seconds.
 Controller restart recovery took 134 ms for each; the separate QEMU crash
 recovery took 7 ms for each. This is full controller process restart evidence
-on one local host, not hosted KVM execution or repeated resource-exhaustion
-stress.
+on one local host, not hosted KVM execution or multi-host stress.
 
 ## Evidence boundary
 
@@ -101,8 +100,10 @@ Task Details viewer UI or a manually operated external handoff.
 
 File transfer and broad guest/host isolation remain unverified. The corrected
 QA build, QEMU crash cleanup, controller process restart, performance samples,
-and unsupported accessibility denial are covered on this host, but
-resource-exhaustion stress remains unverified. The test's opt-in status means
+unsupported accessibility denial, and a bounded pids.max exhaustion check are
+covered on this host. The task-limit check demonstrates one denied thread
+creation and clean worker teardown; repeated, concurrent, memory-pressure, and
+other-host exhaustion cases remain unverified. The test's opt-in status means
 ordinary CI can skip it; only the locally observed KVM run is evidence here.
 #392 remains open while its other acceptance criteria are completed.
 
@@ -111,3 +112,17 @@ tests and the rootless Docker boundary. Its mocks and synthetic browser
 fixtures do not establish QEMU/KVM behavior. R1 release eligibility remains
 closed until the remaining integration, isolation, takeover, recovery, and
 performance evidence is recorded in #392.
+
+On 2026-11-16, the process-limit stress subcase passed in the real-KVM
+acceptance on this host with `pids.max=128`. During the seeded-defect VM run,
+`pids.current` returned to its baseline of 67 after the bounded child attempted
+additional worker threads; `pids.events max` increased from 0 to 1, proving the
+kernel denied an excess task, and the child joined all successfully created
+workers. The full acceptance passed in 128.29 seconds, recorded a 1,187,405,824
+byte session memory peak, and recovered the killed QEMU process in 6 ms. This
+is one local task-limit stress sample; memory-pressure and concurrent-session
+exhaustion tests remain open. The trusted-host workflow run
+[43920061533](https://github.com/zbarno/kool.ade/actions/runs/43920061533)
+passed its policy check but failed closed at runner inventory: GitHub returned
+HTTP 403 to the workflow token, and the repository has no registered
+self-hosted runner with the `computer-use-kvm` label.
