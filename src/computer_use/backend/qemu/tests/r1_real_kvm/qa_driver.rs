@@ -25,15 +25,16 @@ pub(super) const EXECUTABLE_PATH: &str = "bin/qa-fixture";
 
 /// Production boundary: the production Computer QA scenario driver stages an
 /// approved native app through the real artifact bridge, launches it in the
-/// signed QEMU guest, and records a failed seeded assertion with authenticated
-/// guest input and screenshot evidence.
+/// signed QEMU guest, and records either a failed seeded assertion or a passing
+/// corrected build with authenticated guest input and screenshot evidence.
 /// Component fixtures cannot establish that the guest helper launched the
 /// transferred ELF or that real guest observations change after input.
 /// Dependencies are the trusted KVM/image/cgroup prerequisites and the seeded
-/// fixture binary prebuilt by the opt-in workflow; no network is enabled.
-/// Setup includes one additional disposable app launch.
+/// fixture binaries prebuilt by the opt-in workflow; no network is enabled.
+/// Each build runs in its own fresh disposable VM session because the guest
+/// staging protocol allows one app launch per session.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn run_seeded_defect(
+pub(super) fn run_seeded_build(
     root: &Path,
     session: &ComputerSessionV1,
     controller_key_id: &str,
@@ -43,7 +44,21 @@ pub(super) fn run_seeded_defect(
     journal: &GuestActionJournalV1,
     first_sequence: u64,
 ) -> Result<u64, String> {
-    let defect_path = fixture_path("KOOLADE_R1_QA_DEFECT_FIXTURE")?;
+    let (build_label, fixture_variable, expected_status) =
+        match std::env::var("KOOLADE_R1_QA_BUILD").as_deref() {
+            Ok("defect") => (
+                "seeded-defect",
+                "KOOLADE_R1_QA_DEFECT_FIXTURE",
+                QaAssertionStatus::Failed,
+            ),
+            Ok("corrected") => (
+                "corrected-build",
+                "KOOLADE_R1_QA_CORRECTED_FIXTURE",
+                QaAssertionStatus::Passed,
+            ),
+            _ => return Err("KOOLADE_R1_QA_BUILD must be defect or corrected".into()),
+        };
+    let fixture = fixture_path(fixture_variable)?;
     let store = PlanningStore::new(
         uuid::Uuid::new_v4(),
         root.join("real-qa-artifact-store"),
@@ -60,33 +75,34 @@ pub(super) fn run_seeded_defect(
         journal,
         bridge: &bridge,
         next_sequence: first_sequence,
-        fixture: defect_path,
+        fixture: fixture.clone(),
         request: None,
         preexisting_windows: Default::default(),
         latest: None,
     };
 
-    let defect = run_one_build(&mut guest, session, "seeded-defect")?;
-    if !defect.completed
-        || defect.assertions.len() != 2
-        || defect.assertions[1].status != QaAssertionStatus::Failed
-        || defect.screenshots.len() != 1
+    let output = run_one_build(&mut guest, session, build_label, &fixture)?;
+    if !output.completed
+        || output.assertions.len() != 2
+        || output.assertions[0].status != QaAssertionStatus::Passed
+        || output.assertions[1].status != expected_status
+        || output.screenshots.len() != 1
     {
         return Err(format!(
-            "real VM seeded defect evidence mismatch: completed={} failure={:?} assertions={:?} screenshots={}",
-            defect.completed,
-            defect.failure,
-            defect
+            "real VM QA {build_label} evidence mismatch: completed={} failure={:?} assertions={:?} screenshots={}",
+            output.completed,
+            output.failure,
+            output
                 .assertions
                 .iter()
                 .map(|assertion| (&assertion.status, &assertion.observed))
                 .collect::<Vec<_>>(),
-            defect.screenshots.len(),
+            output.screenshots.len(),
         ));
     }
     println!(
-        "R1 real VM QA evidence: seeded_assertion={:?} seeded_screenshot_sha256={}",
-        defect.assertions[1].status, defect.screenshots[0].sha256,
+        "R1 real VM QA evidence: build={} assertion={:?} screenshot_sha256={}",
+        build_label, output.assertions[1].status, output.screenshots[0].sha256,
     );
     Ok(guest.next_sequence)
 }
@@ -95,13 +111,14 @@ fn run_one_build(
     guest: &mut LiveQaGuest<'_>,
     session: &ComputerSessionV1,
     build_label: &str,
+    fixture: &Path,
 ) -> Result<crate::runtime_qa::QaDriverOutputV1, String> {
     let (mut request, mut scenarios, _) =
         crate::runtime_qa::orchestrator::tests::support::fixture();
     request.relevant_platforms = vec![QaPlatform::LinuxDesktop];
     request.parent_task_uid = session.identity.task_id.clone();
     request.driver_profile_version = "computer-vm-driver/v1".into();
-    let bytes = fs::read(&guest.fixture)
+    let bytes = fs::read(fixture)
         .map_err(|error| format!("could not read prebuilt {build_label} QA fixture: {error}"))?;
     let file_sha = format!("{:x}", sha2::Sha256::digest(&bytes));
     let manifest = vec![(EXECUTABLE_PATH, file_sha.as_str())];
