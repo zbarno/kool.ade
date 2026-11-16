@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::Read,
     sync::{
         Arc,
@@ -148,6 +148,7 @@ fn run_in_session(
         prepared,
         claimed_task_revision,
         cancelled: &cancelled,
+        preexisting_windows: BTreeSet::new(),
     };
     let initial = guest.observe(ObservationKind::Screenshot)?;
     let width =
@@ -345,6 +346,7 @@ struct HostGuestV1<'a> {
     prepared: &'a PreparedRequest,
     claimed_task_revision: u64,
     cancelled: &'a AtomicBool,
+    preexisting_windows: BTreeSet<String>,
 }
 
 impl HostGuestV1<'_> {
@@ -405,7 +407,15 @@ impl HostGuestV1<'_> {
         &self,
         id: &str,
     ) -> Result<crate::computer_use::guest_protocol::GuestWindowObservationV1, String> {
-        self.latest.as_ref().and_then(|observation| observation.windows.iter().find(|window| window.window_id == id)).cloned().ok_or_else(|| "Computer QA action referenced a window outside the latest authenticated observation".into())
+        self.latest
+            .as_ref()
+            .and_then(|observation| {
+                select_window(&observation.windows, id)
+            })
+            .cloned()
+            .ok_or_else(|| {
+                "Computer QA action referenced a window outside the latest authenticated observation".into()
+            })
     }
 
     fn frame(&self, window_id: &str) -> Result<ComputerFrameReferenceV1, String> {
@@ -440,6 +450,11 @@ impl crate::runtime_qa::drivers::computer_vm::ComputerQaGuestSessionV1 for HostG
             return Err("Computer QA scenario timed out".into());
         }
         let observation = self.observe(ObservationKind::Screenshot)?;
+        self.preexisting_windows = observation
+            .windows
+            .iter()
+            .map(|window| window.window_id.clone())
+            .collect();
         Ok(
             crate::runtime_qa::drivers::computer_vm::ComputerQaDisplayV1 {
                 width: observation.width_px as u16,
@@ -490,7 +505,7 @@ impl crate::runtime_qa::drivers::computer_vm::ComputerQaGuestSessionV1 for HostG
         match action {
             A::WaitForWindow => loop {
                 let observation = self.observe(ObservationKind::Windows)?;
-                if !observation.windows.is_empty() {
+                if has_new_qa_window(&observation.windows, &self.preexisting_windows) {
                     return Ok(());
                 }
                 if self.cancelled.load(Ordering::Acquire) {
@@ -643,6 +658,29 @@ fn parse_key(value: &str) -> Result<ComputerKeyV1, String> {
     })
 }
 
+fn select_window<'a>(
+    windows: &'a [crate::computer_use::guest_protocol::GuestWindowObservationV1],
+    id: &str,
+) -> Option<&'a crate::computer_use::guest_protocol::GuestWindowObservationV1> {
+    if id == "active" {
+        windows
+            .iter()
+            .find(|window| window.focused)
+            .or_else(|| windows.last())
+    } else {
+        windows.iter().find(|window| window.window_id == id)
+    }
+}
+
+fn has_new_qa_window(
+    windows: &[crate::computer_use::guest_protocol::GuestWindowObservationV1],
+    preexisting: &BTreeSet<String>,
+) -> bool {
+    windows
+        .iter()
+        .any(|window| !preexisting.contains(&window.window_id))
+}
+
 #[cfg(test)]
 #[test]
 fn computer_qa_only_accepts_target_relative_executable_paths() {
@@ -669,6 +707,35 @@ fn computer_qa_only_accepts_target_relative_executable_paths() {
     );
     assert!(target_executable_path(&recipe("npm")).is_err());
     assert!(target_executable_path(&recipe("../outside")).is_err());
+}
+
+#[cfg(test)]
+#[test]
+fn computer_qa_active_window_uses_latest_focused_window_and_wait_ignores_old_windows() {
+    use crate::computer_use::{ComputerWindowBoundsV1, guest_protocol::GuestWindowObservationV1};
+
+    let window = |id: &str, focused: bool| GuestWindowObservationV1 {
+        window_id: id.into(),
+        generation: 1,
+        bounds: ComputerWindowBoundsV1 {
+            left: 0,
+            top: 0,
+            width_px: 320,
+            height_px: 180,
+        },
+        title: id.into(),
+        app_id: None,
+        focused,
+    };
+    let old = window("old-browser", false);
+    let launched = window("launched-app", true);
+    let windows = vec![old.clone(), launched.clone()];
+    let before = BTreeSet::from([old.window_id.clone()]);
+
+    assert_eq!(select_window(&windows, "active"), Some(&launched));
+    assert_eq!(select_window(&windows, "old-browser"), Some(&old));
+    assert!(!has_new_qa_window(std::slice::from_ref(&old), &before));
+    assert!(has_new_qa_window(&windows, &before));
 }
 
 #[cfg(test)]

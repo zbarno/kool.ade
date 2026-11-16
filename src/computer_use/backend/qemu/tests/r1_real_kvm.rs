@@ -32,10 +32,10 @@ mod cleanup;
 mod host_environment;
 #[path = "r1_real_kvm/performance.rs"]
 mod performance;
+#[path = "r1_real_kvm/qa_driver.rs"]
+mod qa_driver;
 #[path = "r1_real_kvm/qmp.rs"]
 mod qmp;
-#[path = "r1_real_kvm/staged_artifact.rs"]
-mod staged_artifact;
 use cgroup::current_cgroup_root;
 
 const REAL_KVM_ENV: &str = "KOOLADE_COMPUTER_USE_R1_REAL_KVM";
@@ -66,10 +66,10 @@ impl ComputerImageDownloadApprovalV1 for TestImageApproval {
 /// synthetic runner environment canary also verifies that QEMU inherits no host
 /// secrets from its parent process. The test reads the live cgroup controls and
 /// process count because QEMU command arguments alone do not prove the kernel
-/// enforced the session's CPU, memory, swap, and task limits. A synthetic approved artifact also crosses
-/// the P15 bridge and authenticated guest channel and reaches the guest launch
-/// handoff. This proves transport and protocol acceptance only, not real QA
-/// build approval or application readiness.
+/// enforced the session's CPU, memory, swap, and task limits. An approved
+/// native QA fixture crosses the P15 bridge and authenticated guest channel,
+/// launches through the guest helper, and runs through the production QA
+/// scenario driver.
 #[test]
 fn computer_use_r1_real_kvm_acceptance() {
     if std::env::var(REAL_KVM_ENV).as_deref() != Ok("1") {
@@ -543,7 +543,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
                 unix_time_ms()?,
             )
             .map_err(|error| format!("human takeover authorization: {error:?}"))?;
-        staged_artifact::stage_artifact_through_real_guest(
+        let next_action_sequence = qa_driver::run_seeded_defect(
             root,
             &session,
             controller_key_id,
@@ -553,6 +553,20 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             &journal,
             next_action_sequence,
         )?;
+        let handoff_observation = observe_frame_as(
+            &human_authority,
+            &mut channel,
+            &journal,
+            &session,
+            ComputerActionActorV1::Human,
+            next_action_sequence,
+        )?;
+        let handoff_window_id = handoff_observation
+            .windows
+            .iter()
+            .find(|window| window.app_id.as_deref() == Some("chromium"))
+            .map(|window| window.window_id.clone())
+            .ok_or("Chromium window missing after QA app cleanup")?;
         let human_action = action_as(
             &session,
             ComputerActionActorV1::Human,
@@ -560,8 +574,8 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             ComputerOperationV1::KeyboardInput,
             ComputerActionPayloadV1::KeyPress {
                 key: ComputerKeyV1::Named(KeyCodeV1::Escape),
-                window_id: window_id.clone(),
-                observation_revision: input_frame.observation_revision,
+                window_id: handoff_window_id,
+                observation_revision: handoff_observation.observation_revision,
             },
         );
         human_authority
@@ -722,12 +736,31 @@ fn observe_frame(
     session: &crate::computer_use::ComputerSessionV1,
     sequence: u64,
 ) -> Result<crate::computer_use::guest_protocol::GuestObservationV1, String> {
+    observe_frame_as(
+        authority,
+        channel,
+        journal,
+        session,
+        ComputerActionActorV1::Agent,
+        sequence,
+    )
+}
+
+fn observe_frame_as(
+    authority: &crate::computer_use::guest_protocol::AuthorizedComputerUseSessionV1,
+    channel: &mut crate::computer_use::guest_protocol::AuthenticatedGuestChannelV1,
+    journal: &crate::computer_use::guest_protocol::GuestActionJournalV1,
+    session: &crate::computer_use::ComputerSessionV1,
+    actor: ComputerActionActorV1,
+    sequence: u64,
+) -> Result<crate::computer_use::guest_protocol::GuestObservationV1, String> {
     authority
         .execute(
             channel,
             journal,
-            &action(
+            &action_as(
                 session,
+                actor,
                 sequence,
                 ComputerOperationV1::ObserveScreen,
                 ComputerActionPayloadV1::ObserveScreen,

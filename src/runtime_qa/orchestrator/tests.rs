@@ -13,7 +13,7 @@ mod reviewer;
 #[path = "tests/seed_findings.rs"]
 mod seed_findings;
 #[path = "tests/support.rs"]
-mod support;
+pub(crate) mod support;
 #[path = "tests/visual_review.rs"]
 mod visual_review;
 

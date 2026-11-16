@@ -6,7 +6,7 @@ mod contracts;
 pub(super) mod diagnostic_redaction;
 pub(crate) mod drivers;
 mod gate;
-mod orchestrator;
+pub(crate) mod orchestrator;
 mod recipe_queue_handle;
 pub(crate) mod scenario_synthesis;
 mod store;

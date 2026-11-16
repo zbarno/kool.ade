@@ -8,7 +8,7 @@ pub(super) const VISUAL_REVIEW_PENDING_LOG: &str =
     "visual expectations are awaiting independent screenshot inspection";
 #[cfg(test)]
 #[path = "orchestrator/tests.rs"]
-mod tests;
+pub(crate) mod tests;
 use report::{ReportAssembly, assemble_report};
 use review::{apply_review_verdict, failed_assertion_findings};
 use visual::mark_unreviewed_visual_expectations;
