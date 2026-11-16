@@ -10,8 +10,8 @@ use std::{
 
 use crate::computer_use::{
     ComputerActionActorV1, ComputerActionPayloadV1, ComputerActionV1, ComputerBackend,
-    ComputerKeyV1, ComputerLifecycleV1, ComputerNetworkProfileV1, ComputerOperationV1, KeyCodeV1,
-    MINIMUM_DISPOSABLE_VM_BUDGET_V1, MouseButtonV1,
+    ComputerKeyV1, ComputerLifecycleV1, ComputerMachineStateV1, ComputerNetworkProfileV1,
+    ComputerOperationV1, KeyCodeV1, MINIMUM_DISPOSABLE_VM_BUDGET_V1, MouseButtonV1,
     guest_image::{
         ComputerGuestArchitectureV1, ComputerImageDownloadApprovalV1, GuestImageCacheV1,
         GuestImageCatalogGenerationFloorV1, GuestImageOverlayRequestV1, ImageCacheErrorV1,
@@ -157,7 +157,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         root.join("runtime"),
         root.join("overlays"),
         cgroup_root.clone(),
-        machine_id,
+        machine_id.clone(),
         controller_key_id.to_owned(),
         controller_key.verifying_key(),
         ComputerResourceLimitsV1::default(),
@@ -210,6 +210,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
     let mut idle_memory_bytes = 0;
     let mut idle_cpu_usec = 0;
     let mut peak_memory_bytes = 0;
+    let mut crash_recovery_ms = None;
     let result = (|| {
         backend
             .boot(&session, &handle, unix_time_ms()?)
@@ -690,20 +691,104 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             idle_cpu_usec,
             peak_memory_bytes,
         );
+
+        // Simulate an unexpected hypervisor exit after the session has carried
+        // real guest input, QA staging, takeover, and display traffic. Collect
+        // the dead child, then recover its durable session record from a fresh
+        // backend instance and verify that its owned resources are removed.
+        let owner_path = session_directory.join("owner.json");
+        let owner: serde_json::Value = serde_json::from_slice(
+            &fs::read(&owner_path).map_err(|error| format!("read crash-test owner: {error}"))?,
+        )
+        .map_err(|error| format!("parse crash-test owner: {error}"))?;
+        let qemu_pid = owner
+            .get("pid")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or("crash-test owner record has no QEMU process id")?;
+        let command_line = fs::read(format!("/proc/{qemu_pid}/cmdline"))
+            .map_err(|error| format!("read crash-test QEMU command line: {error}"))?;
+        if !command_line
+            .windows(session.identity.session_id.len())
+            .any(|part| part == session.identity.session_id.as_bytes())
+        {
+            return Err("crash-test QEMU process did not match the active session".into());
+        }
+        if unsafe { libc::kill(qemu_pid as i32, libc::SIGKILL) } != 0 {
+            return Err(format!(
+                "could not inject the QEMU crash: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        let collect_deadline = Instant::now() + Duration::from_secs(5);
+        let crashed_record = loop {
+            let record = backend
+                .collect(&session, &handle, unix_time_ms()?)
+                .map_err(|error| format!("collect crashed QEMU session: {error:?}"))?;
+            if record.state == ComputerMachineStateV1::Stopped {
+                break record;
+            }
+            if Instant::now() >= collect_deadline {
+                return Err("crashed QEMU session was not collected within five seconds".into());
+            }
+            thread::sleep(Duration::from_millis(25));
+        };
+        if crashed_record.exit_code.is_some() {
+            return Err(format!(
+                "crashed QEMU unexpectedly reported a normal exit code: {:?}",
+                crashed_record.exit_code
+            ));
+        }
+        let recovery_backend = LocalKvmComputerBackend::new(
+            root.join("runtime"),
+            root.join("overlays"),
+            cgroup_root.clone(),
+            machine_id.clone(),
+            controller_key_id.to_owned(),
+            controller_key.verifying_key(),
+            ComputerResourceLimitsV1::default(),
+        )
+        .map_err(|error| format!("recovery backend configuration: {error:?}"))?;
+        let recovery_started = Instant::now();
+        let recovered = recovery_backend
+            .recover()
+            .map_err(|error| format!("recover crashed QEMU session: {error:?}"))?;
+        if recovered.len() != 1
+            || recovered[0].session_id != session.identity.session_id
+            || recovered[0].lease_generation != session.lease.generation
+            || recovered[0].kind != crate::computer_use::ComputerBackendEventKindV1::Recovered
+        {
+            return Err(format!("unexpected crash recovery events: {recovered:?}"));
+        }
+        crash_recovery_ms = Some(recovery_started.elapsed().as_millis());
+        println!(
+            "R1 real KVM crash recovery evidence: state={:?} recovered_events={} recovery_ms={}",
+            crashed_record.state,
+            recovered.len(),
+            crash_recovery_ms.unwrap_or_default(),
+        );
         Ok(())
     })();
     let cleanup_started = Instant::now();
-    let _ = backend.stop(&session, &handle, unix_time_ms()?);
-    let cleanup = backend.release(&session, &handle, unix_time_ms()?);
-    if let Err(error) = cleanup {
-        return Err(format!(
-            "VM cleanup: {error:?}; acceptance result: {}",
-            result.err().unwrap_or_else(|| "passed".into())
-        ));
+    if crash_recovery_ms.is_none() {
+        let _ = backend.stop(&session, &handle, unix_time_ms()?);
+        let cleanup = backend.release(&session, &handle, unix_time_ms()?);
+        if let Err(error) = cleanup {
+            return Err(format!(
+                "VM cleanup: {error:?}; acceptance result: {}",
+                result.err().unwrap_or_else(|| "passed".into())
+            ));
+        }
+        cleanup::assert_released(&session_directory, &session_cgroup, &overlay_root)?;
     }
-    cleanup::assert_released(&session_directory, &session_cgroup, &overlay_root)?;
-    let cleanup_ms = cleanup_started.elapsed().as_millis();
-    println!("R1 real KVM cleanup evidence: cleanup_ms={}", cleanup_ms);
+    let cleanup_ms = crash_recovery_ms.unwrap_or_else(|| cleanup_started.elapsed().as_millis());
+    if crash_recovery_ms.is_some() {
+        cleanup::assert_released(&session_directory, &session_cgroup, &overlay_root)?;
+    }
+    println!(
+        "R1 real KVM cleanup evidence: cleanup_ms={} recovery_path={}",
+        cleanup_ms,
+        crash_recovery_ms.is_some()
+    );
     result?;
     performance::assert_acceptance_budgets(performance::AcceptanceMetrics {
         provisioning_ms,
