@@ -28,6 +28,8 @@ use crate::computer_use::ComputerResourceLimitsV1;
 mod cgroup;
 #[path = "r1_real_kvm/cleanup.rs"]
 mod cleanup;
+#[path = "r1_real_kvm/controller_restart.rs"]
+mod controller_restart;
 #[path = "r1_real_kvm/host_environment.rs"]
 mod host_environment;
 #[path = "r1_real_kvm/performance.rs"]
@@ -39,6 +41,8 @@ mod qmp;
 use cgroup::current_cgroup_root;
 
 const REAL_KVM_ENV: &str = "KOOLADE_COMPUTER_USE_R1_REAL_KVM";
+const CONTROLLER_RESTART_ROOT_ENV: &str = "KOOLADE_R1_KVM_CONTROLLER_RESTART_ROOT";
+const CONTROLLER_RESTART_CHILD_ENV: &str = "KOOLADE_R1_KVM_CONTROLLER_RESTART_CHILD";
 const MANIFEST: &[u8] = include_bytes!("../../../../../containers/computer-use/catalog-v1.json");
 
 struct TestImageApproval;
@@ -75,13 +79,23 @@ fn computer_use_r1_real_kvm_acceptance() {
     if std::env::var(REAL_KVM_ENV).as_deref() != Ok("1") {
         return;
     }
-    run_real_kvm_acceptance()
-        .unwrap_or_else(|reason| panic!("R1 real KVM acceptance failed: {reason}"));
+    if std::env::var(CONTROLLER_RESTART_CHILD_ENV).as_deref() == Ok("1") {
+        let root = std::env::var_os(CONTROLLER_RESTART_ROOT_ENV)
+            .map(std::path::PathBuf::from)
+            .expect("controller-restart child needs a shared runtime root");
+        run_real_kvm_acceptance(&root, true)
+            .unwrap_or_else(|reason| panic!("R1 real KVM child acceptance failed: {reason}"));
+    } else {
+        controller_restart::run()
+            .unwrap_or_else(|reason| panic!("R1 real KVM controller restart failed: {reason}"));
+        let temporary = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("R1 QEMU crash-test root failed: {error}"));
+        run_real_kvm_acceptance(temporary.path(), false)
+            .unwrap_or_else(|reason| panic!("R1 real QEMU crash acceptance failed: {reason}"));
+    }
 }
 
-fn run_real_kvm_acceptance() -> Result<(), String> {
-    let temporary = tempfile::tempdir().map_err(|error| error.to_string())?;
-    let root = temporary.path();
+fn run_real_kvm_acceptance(root: &Path, wait_for_controller_restart: bool) -> Result<(), String> {
     // Reuse the public signed image across opt-in retries; failed guest boots
     // should not require another 682 MB download.
     let image_cache_root = std::env::temp_dir().join(format!("koolade-r1-kvm-cache-{}", unsafe {
@@ -691,6 +705,19 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             idle_cpu_usec,
             peak_memory_bytes,
         );
+
+        if wait_for_controller_restart {
+            controller_restart::publish_ready(
+                root,
+                &session.identity.session_id,
+                session.lease.generation,
+                &machine_id,
+            )?;
+            println!("R1 real KVM controller restart evidence: active session is ready");
+            loop {
+                thread::sleep(Duration::from_secs(60));
+            }
+        }
 
         // Simulate an unexpected hypervisor exit after the session has carried
         // real guest input, QA staging, takeover, and display traffic. Collect

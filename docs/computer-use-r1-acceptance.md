@@ -71,8 +71,20 @@ Each run then killed the owned QEMU process, required collection to report a
 stopped machine with no normal exit code, and called recovery on a fresh
 backend instance. Recovery returned one matching event and removed the
 session directory, cgroup, and overlay in 7 ms and 10 ms. This covers guest
-process crash cleanup and backend reconstruction, not a full controller
-process restart or repeated resource-exhaustion stress.
+process crash cleanup and backend reconstruction.
+
+On 2026-11-16, the opt-in acceptance was extended to run the controller and
+live VM in a separate test process. After authenticated interaction, takeover,
+and the seeded QA driver, the controller wrote a readiness marker and was
+terminated with SIGKILL. The test verified that the session-owned QEMU process
+was still alive, then reconstructed the backend in the surviving process,
+recovered exactly one matching event, and verified QEMU, the session directory,
+cgroup, and overlay were removed. The full seeded-defect acceptance run
+completed in 136.40 seconds and the corrected-build run in 132.75 seconds.
+Controller restart recovery took 134 ms for each; the separate QEMU crash
+recovery took 7 ms for each. This is full controller process restart evidence
+on one local host, not hosted KVM execution or repeated resource-exhaustion
+stress.
 
 ## Evidence boundary
 
@@ -87,12 +99,12 @@ actor capabilities were revoked. The cached-image run took 46.51 seconds and
 reported 1280×800 guest and QEMU display frames. This did not exercise the live
 Task Details viewer UI or a manually operated external handoff.
 
-File transfer and guest/host isolation remain unverified. The corrected QA
-build, QEMU process crash cleanup, performance samples, and unsupported
-accessibility denial are now covered, but controller process restart and
-resource-exhaustion stress remain unverified. The test's opt-in status
-means ordinary CI can skip it; only the locally observed KVM run is evidence
-here. #392 remains open while its other acceptance criteria are completed.
+File transfer and broad guest/host isolation remain unverified. The corrected
+QA build, QEMU crash cleanup, controller process restart, performance samples,
+and unsupported accessibility denial are covered on this host, but
+resource-exhaustion stress remains unverified. The test's opt-in status means
+ordinary CI can skip it; only the locally observed KVM run is evidence here.
+#392 remains open while its other acceptance criteria are completed.
 
 The existing ordinary CI suite continues to cover deterministic component
 tests and the rootless Docker boundary. Its mocks and synthetic browser
