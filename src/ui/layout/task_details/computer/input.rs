@@ -29,19 +29,7 @@ pub(super) fn paint_frame(
     let image_size = viewer_size(size, ui.available_width());
     let interactive =
         session.control_owner == crate::computer_use::mcp::ComputerUseControlOwnerV1::Human;
-    let sense = if interactive {
-        egui::Sense::click_and_drag()
-    } else {
-        egui::Sense::hover()
-    };
-    let response = ui.add(
-        egui::Image::new(&texture)
-            .fit_to_exact_size(image_size)
-            .sense(sense),
-    );
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Image, true, "Live VM desktop")
-    });
+    let response = add_accessible_frame_image(ui, &texture, image_size, interactive);
     if !interactive {
         ui.label("Take control to use the mouse and keyboard.");
         return;
@@ -84,6 +72,28 @@ pub(super) fn paint_frame(
     } else if response.clicked() {
         response.request_focus();
     }
+}
+
+fn add_accessible_frame_image(
+    ui: &mut egui::Ui,
+    texture: &egui::TextureHandle,
+    image_size: egui::Vec2,
+    interactive: bool,
+) -> egui::Response {
+    let sense = if interactive {
+        egui::Sense::click_and_drag()
+    } else {
+        egui::Sense::hover()
+    };
+    let response = ui.add(
+        egui::Image::new(texture)
+            .fit_to_exact_size(image_size)
+            .sense(sense),
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Image, true, "Live VM desktop")
+    });
+    response
 }
 
 fn viewer_size(frame: [usize; 2], available_width: f32) -> egui::Vec2 {
