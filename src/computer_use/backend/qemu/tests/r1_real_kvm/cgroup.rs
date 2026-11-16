@@ -5,6 +5,57 @@ use std::{
 
 const REQUIRED_CONTROLLERS: [&str; 3] = ["cpu", "memory", "pids"];
 
+/// Verify the kernel cgroup actually contains the exact per-session resource
+/// ceilings requested by the signed session, rather than trusting only the
+/// backend's write path or QEMU's guest-facing arguments.
+pub(super) fn assert_session_limits(
+    path: &Path,
+    cpu_millis: u32,
+    memory_bytes: u64,
+    max_processes: u16,
+) -> Result<(), String> {
+    let expected_cpu_quota = u64::from(cpu_millis).saturating_mul(100);
+    assert_control(path, "cpu.max", &format!("{expected_cpu_quota} 100000"))?;
+    assert_control(path, "memory.max", &memory_bytes.to_string())?;
+    assert_control(path, "memory.swap.max", "0")?;
+    assert_control(path, "memory.oom.group", "1")?;
+    assert_control(path, "pids.max", &max_processes.to_string())
+}
+
+/// Confirm that the live VM has entered its bounded cgroup and remains below
+/// its task ceiling. This distinguishes an enforced cgroup from a configured
+/// but unused directory.
+pub(super) fn assert_live_process_count(path: &Path) -> Result<(), String> {
+    let current = read_control(path, "pids.current")?
+        .parse::<u64>()
+        .map_err(|error| format!("invalid cgroup pids.current: {error}"))?;
+    let maximum = read_control(path, "pids.max")?
+        .parse::<u64>()
+        .map_err(|error| format!("invalid cgroup pids.max: {error}"))?;
+    if current == 0 || current > maximum {
+        return Err(format!(
+            "live cgroup process count {current} is outside 1..={maximum}"
+        ));
+    }
+    Ok(())
+}
+
+fn assert_control(path: &Path, name: &str, expected: &str) -> Result<(), String> {
+    let actual = read_control(path, name)?;
+    if actual != expected {
+        return Err(format!(
+            "cgroup {name} is {actual:?}, expected {expected:?}"
+        ));
+    }
+    Ok(())
+}
+
+fn read_control(path: &Path, name: &str) -> Result<String, String> {
+    fs::read_to_string(path.join(name))
+        .map(|value| value.trim().to_owned())
+        .map_err(|error| format!("read cgroup {name}: {error}"))
+}
+
 pub(super) fn current_cgroup_root() -> Result<PathBuf, String> {
     cgroup_root_from(Path::new("/proc/self/cgroup"), Path::new("/sys/fs/cgroup"))
 }
@@ -91,7 +142,40 @@ fn cgroup_root_from(proc_path: &Path, mount_root: &Path) -> Result<PathBuf, Stri
 mod tests {
     use std::fs;
 
-    use super::cgroup_root_from;
+    use super::{assert_live_process_count, assert_session_limits, cgroup_root_from};
+
+    #[test]
+    fn live_cgroup_resource_controls_match_the_session_budget() {
+        let temporary = tempfile::tempdir().expect("temporary cgroup");
+        let path = temporary.path();
+        for (name, value) in [
+            ("cpu.max", "200000 100000\n"),
+            ("memory.max", "2147483648\n"),
+            ("memory.swap.max", "0\n"),
+            ("memory.oom.group", "1\n"),
+            ("pids.max", "128\n"),
+            ("pids.current", "73\n"),
+        ] {
+            fs::write(path.join(name), value).expect("cgroup control");
+        }
+
+        assert_session_limits(path, 2_000, 2 * 1024 * 1024 * 1024, 128).unwrap();
+        assert_live_process_count(path).unwrap();
+
+        fs::write(path.join("memory.swap.max"), "max\n").unwrap();
+        assert!(assert_session_limits(path, 2_000, 2 * 1024 * 1024 * 1024, 128).is_err());
+    }
+
+    #[test]
+    fn live_cgroup_rejects_empty_or_over_limit_process_counts() {
+        let temporary = tempfile::tempdir().expect("temporary cgroup");
+        let path = temporary.path();
+        fs::write(path.join("pids.max"), "128\n").unwrap();
+        fs::write(path.join("pids.current"), "0\n").unwrap();
+        assert!(assert_live_process_count(path).is_err());
+        fs::write(path.join("pids.current"), "129\n").unwrap();
+        assert!(assert_live_process_count(path).is_err());
+    }
 
     #[test]
     fn selects_nearest_writable_delegated_ancestor() {

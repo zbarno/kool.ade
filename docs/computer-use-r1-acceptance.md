@@ -47,6 +47,17 @@ The test ran locally because no online Actions runner carries the
 `computer-use-kvm` label; the manually dispatched workflow contract is
 unchanged.
 
+On 2026-11-16, the same host passed the opt-in acceptance again against the
+cached generation 19 image. This run verified the live session cgroup controls
+after QEMU boot: `cpu.max=200000 100000`, `memory.max=2147483648`,
+`memory.swap.max=0`, `memory.oom.group=1`, and `pids.max=128`, with live QEMU
+tasks within that ceiling. Authenticated guest and QEMU display frames were
+1280×800; mouse/keyboard input, takeover/handback, unsupported-accessibility
+denial, artifact handoff, and cleanup also passed. The final run after
+action-sequence correction took 55.44 seconds. The GUI acceptance waits up to
+one second for the guest frame to reflect completed input actions. This is
+one Linux host run, not resource-exhaustion stress evidence.
+
 ## Evidence boundary
 
 The host preflight records OS/architecture, tool versions, KVM device
