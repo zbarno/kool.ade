@@ -266,6 +266,8 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             .map_err(|error| format!("disabled-network QEMU device graph: {error}"))?;
         qmp::assert_approved_pci_devices(&session_directory.join("qemu-qmp.sock"))
             .map_err(|error| format!("QEMU PCI device isolation: {error}"))?;
+        qmp::assert_unapproved_network_hotplug_is_denied(&session_directory.join("qemu-qmp.sock"))
+            .map_err(|error| format!("live QEMU network hotplug denial: {error}"))?;
         qmp::assert_only_session_chardevs(
             &session_directory.join("qemu-qmp.sock"),
             &session_directory,
@@ -702,6 +704,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
     cleanup::assert_released(&session_directory, &session_cgroup, &overlay_root)?;
     let cleanup_ms = cleanup_started.elapsed().as_millis();
     println!("R1 real KVM cleanup evidence: cleanup_ms={}", cleanup_ms);
+    result?;
     performance::assert_acceptance_budgets(performance::AcceptanceMetrics {
         provisioning_ms,
         screen_observation_ms,
@@ -710,14 +713,8 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         idle_cpu_usec,
         peak_memory_bytes,
         cleanup_ms,
-    })
-    .map_err(|error| {
-        format!(
-            "{error}; acceptance result: {}",
-            result.as_ref().err().map_or("passed", String::as_str)
-        )
     })?;
-    result
+    Ok(())
 }
 
 fn action(
