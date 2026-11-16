@@ -12,6 +12,9 @@ use crate::{
 use sha2::Digest as _;
 use std::time::Instant;
 
+#[path = "computer_qa/computer_vm_driver.rs"]
+mod computer_vm_driver;
+
 struct PreviewOnlyDesktopDriver;
 
 impl QaScenarioDriver for PreviewOnlyDesktopDriver {
