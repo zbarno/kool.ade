@@ -9,7 +9,7 @@ use windows_sys::Win32::{
     System::Threading::{CREATE_NO_WINDOW, CREATE_SUSPENDED, WaitForSingleObject},
 };
 
-use super::{JobHandle, WindowsVmProcessJob};
+use super::WindowsVmProcessJob;
 use crate::computer_use::windows_backend::WindowsVmJobLimits;
 
 pub(super) fn spawn_contained(

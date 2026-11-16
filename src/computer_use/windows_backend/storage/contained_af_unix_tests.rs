@@ -24,12 +24,11 @@ const CHILD_TEST_FILTER: &str = "computer_use::windows_backend::storage::tests::
 fn contained_guest_client_connects_under_job() {
     if let Some(path) = std::env::var_os(CHILD_SOCKET_ENV) {
         child_connect_and_wait(&path);
-        unreachable!("the parent terminates the contained fixture child");
     }
 
     let temporary = super::af_unix_tests::ShortStorageRoot::new();
     let storage = WindowsVmStorage::open_at(temporary.path()).expect("private test storage");
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_id = "123e4567-e89b-12d3-a456-426614174000";
     let socket_path = storage
         .guest_control_socket_path(&session_id)
         .expect("app-owned socket path");

@@ -29,44 +29,50 @@ mod computer_use {
     }
 
     pub(crate) mod windows_backend {
-        #[path = "../../../../../src/computer_use/windows_backend/storage_policy.rs"]
-        mod storage_policy;
+        #[derive(Clone, Copy)]
+        pub(crate) struct WindowsWpxReadiness {
+            pub(crate) ready_for_adapter: bool,
+            pub(crate) release_enabled: bool,
+            pub(crate) blocker: Option<&'static str>,
+        }
 
-        mod process {
-            use std::io;
-
-            pub(crate) struct WindowsVmProcessJob;
-
-            impl WindowsVmProcessJob {
-                pub(crate) fn id(&self) -> u32 {
-                    std::process::id()
-                }
-
-                pub(crate) fn try_wait(&mut self) -> io::Result<Option<std::process::ExitStatus>> {
-                    Ok(None)
-                }
-            }
-
-            #[path = "../../../../../../src/computer_use/windows_backend/process/identity.rs"]
-            mod identity;
-
-            pub(super) fn current_user_sid() -> io::Result<identity::AlignedSid> {
-                use windows_sys::Win32::{
-                    Foundation::CloseHandle,
-                    Security::TOKEN_QUERY,
-                    System::Threading::{GetCurrentProcess, OpenProcessToken},
-                };
-                let mut token = std::ptr::null_mut();
-                // SAFETY: token is a writable output handle and the process pseudo-handle is valid.
-                if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
-                    return Err(io::Error::last_os_error());
-                }
-                let result = identity::token_user_sid(token);
-                // SAFETY: token was returned as an owned handle by OpenProcessToken.
-                unsafe { CloseHandle(token) };
-                result
+        pub(crate) fn probe_windows_wpx() -> WindowsWpxReadiness {
+            WindowsWpxReadiness {
+                ready_for_adapter: false,
+                release_enabled: false,
+                blocker: Some("test harness does not certify WHPX readiness"),
             }
         }
+
+        #[derive(Clone, Copy)]
+        pub(crate) struct WindowsVmJobLimits {
+            process_memory_bytes: usize,
+            cpu_rate_hundredths_percent: u32,
+            active_processes: u32,
+        }
+
+        impl WindowsVmJobLimits {
+            pub(crate) fn new(
+                process_memory_bytes: u64,
+                cpu_rate_hundredths_percent: u32,
+                active_processes: u32,
+            ) -> Option<Self> {
+                let process_memory_bytes = usize::try_from(process_memory_bytes).ok()?;
+                (process_memory_bytes > 0
+                    && (1..=10_000).contains(&cpu_rate_hundredths_percent)
+                    && (1..=64).contains(&active_processes))
+                .then_some(Self {
+                    process_memory_bytes,
+                    cpu_rate_hundredths_percent,
+                    active_processes,
+                })
+            }
+        }
+
+        #[path = "../../../../../src/computer_use/windows_backend/process.rs"]
+        mod process;
+        #[path = "../../../../../src/computer_use/windows_backend/storage_policy.rs"]
+        mod storage_policy;
 
         #[path = "../../../../../src/computer_use/windows_backend/storage.rs"]
         mod storage;

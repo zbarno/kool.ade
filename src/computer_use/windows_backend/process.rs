@@ -27,6 +27,7 @@ use super::WindowsVmJobLimits;
 
 #[path = "process/identity.rs"]
 mod identity;
+#[path = "process/spawn.rs"]
 mod spawn;
 
 const MAX_JOB_CONFIG_BYTES: u32 = 1024;
