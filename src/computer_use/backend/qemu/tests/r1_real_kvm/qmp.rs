@@ -6,6 +6,10 @@ use std::{
     time::Duration,
 };
 
+#[path = "qmp/live_network.rs"]
+mod live_network;
+pub(super) use live_network::assert_unapproved_network_hotplug_is_denied;
+
 /// Query the live QEMU PCI graph and fail if the disabled-network VM has any
 /// network-class device. This checks the device graph after QEMU has applied
 /// its machine defaults, beyond the unit-level command-line assertion.
