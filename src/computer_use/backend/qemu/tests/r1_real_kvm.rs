@@ -64,7 +64,9 @@ impl ComputerImageDownloadApprovalV1 for TestImageApproval {
 /// PCI graph to verify that the disabled-network guest has no network device;
 /// a command-builder unit test cannot detect QEMU-added runtime devices. A
 /// synthetic runner environment canary also verifies that QEMU inherits no host
-/// secrets from its parent process. A synthetic approved artifact also crosses
+/// secrets from its parent process. The test reads the live cgroup controls and
+/// process count because QEMU command arguments alone do not prove the kernel
+/// enforced the session's CPU, memory, swap, and task limits. A synthetic approved artifact also crosses
 /// the P15 bridge and authenticated guest channel and reaches the guest launch
 /// handoff. This proves transport and protocol acceptance only, not real QA
 /// build approval or application readiness.
@@ -211,6 +213,15 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         backend
             .boot(&session, &handle, unix_time_ms()?)
             .map_err(|error| format!("QEMU/KVM boot: {error:?}"))?;
+        cgroup::assert_session_limits(
+            &session_cgroup,
+            session.policy.resource_budget.cpu_millis,
+            session.policy.resource_budget.memory_bytes,
+            ComputerResourceLimitsV1::default().max_processes,
+        )
+        .map_err(|error| format!("live QEMU resource ceilings: {error}"))?;
+        cgroup::assert_live_process_count(&session_cgroup)
+            .map_err(|error| format!("live QEMU cgroup membership: {error}"))?;
         let monitor_socket = root
             .join("runtime/sessions")
             .join(&session.identity.session_id)
@@ -479,9 +490,21 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             )
             .map_err(|error| format!("real guest Enter key: {error:?}"))?;
         require_guest_action_completed("real guest Enter key", &enter_result.reply.result)?;
-        let input_frame = observe_frame(&authority, &mut channel, &journal, &session, 10)?;
+        let mut input_frame = observe_frame(&authority, &mut channel, &journal, &session, 10)?;
+        let mut next_action_sequence = 11;
+        for sequence in 11..=15 {
+            if input_frame.screenshot_sha256 != observation.screenshot_sha256 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(200));
+            input_frame = observe_frame(&authority, &mut channel, &journal, &session, sequence)?;
+            next_action_sequence = sequence + 1;
+        }
         if input_frame.screenshot_sha256 == observation.screenshot_sha256 {
-            return Err("real guest mouse and keyboard input did not change the screen".into());
+            return Err(
+                "real guest mouse and keyboard input did not change the screen within one second"
+                    .into(),
+            );
         }
 
         // Human takeover atomically revokes the old agent capability. Handback
@@ -528,11 +551,12 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             &human_authority,
             &mut channel,
             &journal,
+            next_action_sequence,
         )?;
         let human_action = action_as(
             &session,
             ComputerActionActorV1::Human,
-            12,
+            next_action_sequence + 1,
             ComputerOperationV1::KeyboardInput,
             ComputerActionPayloadV1::KeyPress {
                 key: ComputerKeyV1::Named(KeyCodeV1::Escape),
@@ -589,7 +613,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             .map_err(|error| format!("agent handback authority lookup: {error:?}"))?;
         let accessibility = action(
             &session,
-            13,
+            next_action_sequence + 2,
             ComputerOperationV1::ReadAccessibility,
             ComputerActionPayloadV1::ReadAccessibility,
         );
@@ -608,7 +632,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             ));
         }
         if journal
-            .status_for_sequence(13)
+            .status_for_sequence(next_action_sequence + 2)
             .map_err(|error| format!("accessibility journal status: {error:?}"))?
             != crate::computer_use::guest_protocol::GuestActionJournalStatusV1::NotRecorded
         {

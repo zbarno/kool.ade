@@ -19,6 +19,7 @@ use sha2::Digest as _;
 /// guest channel, then launch it through the guest helper. The tiny ELF fixture
 /// validates the transfer and launch protocol only; it does not prove app
 /// readiness or a real QA approval.
+#[allow(clippy::too_many_arguments)] // Bind the real session, authority and journal at this boundary.
 pub(super) fn stage_artifact_through_real_guest(
     root: &std::path::Path,
     session: &ComputerSessionV1,
@@ -27,6 +28,7 @@ pub(super) fn stage_artifact_through_real_guest(
     authority: &crate::computer_use::guest_protocol::AuthorizedComputerUseSessionV1,
     channel: &mut AuthenticatedGuestChannelV1,
     journal: &GuestActionJournalV1,
+    sequence: u64,
 ) -> Result<(), String> {
     let now = super::unix_time_ms()?;
     let task_revision = "a".repeat(40);
@@ -107,7 +109,7 @@ pub(super) fn stage_artifact_through_real_guest(
     let mut stage_action = super::action_as(
         session,
         Actor::Human,
-        11,
+        sequence,
         Operation::LaunchApprovedStagedTaskApp,
         payload,
     );
