@@ -91,6 +91,30 @@ impl WindowsAfUnixListener {
         qemu: &mut WindowsVmProcessJob,
         timeout: Duration,
     ) -> io::Result<crate::computer_use::ComputerGuestChannelV1> {
+        let (stream, _) = self.accept_verified_peer(qemu, timeout)?;
+        Ok(channel_from_verified_io(
+            session_id,
+            lease_generation,
+            stream,
+        ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn accept_child_peer_pid_for_test(
+        &self,
+        qemu: &mut WindowsVmProcessJob,
+        timeout: Duration,
+    ) -> io::Result<u32> {
+        let (stream, peer_pid) = self.accept_verified_peer(qemu, timeout)?;
+        drop(stream);
+        Ok(peer_pid)
+    }
+
+    fn accept_verified_peer(
+        &self,
+        qemu: &mut WindowsVmProcessJob,
+        timeout: Duration,
+    ) -> io::Result<(WindowsAfUnixStream, u32)> {
         if timeout.is_zero() || timeout > MAX_ACCEPT_WAIT {
             return Err(invalid_input("AF_UNIX accept timeout is outside its bound"));
         }
@@ -114,7 +138,7 @@ impl WindowsAfUnixListener {
                 unsafe { accept(self.socket.0, std::ptr::null_mut(), std::ptr::null_mut()) };
             if accepted != INVALID_SOCKET {
                 let stream = SocketHandle(accepted);
-                verify_peer_pid(stream.0, expected_pid)?;
+                let peer_pid = verify_peer_pid(stream.0, expected_pid)?;
                 if qemu.try_wait()?.is_some() {
                     return Err(io::Error::new(
                         io::ErrorKind::PermissionDenied,
@@ -126,11 +150,7 @@ impl WindowsAfUnixListener {
                 if unsafe { ioctlsocket(stream.0, FIONBIO, &mut blocking) } == SOCKET_ERROR {
                     return Err(last_winsock_error());
                 }
-                return Ok(channel_from_verified_io(
-                    session_id,
-                    lease_generation,
-                    WindowsAfUnixStream(stream),
-                ));
+                return Ok((WindowsAfUnixStream(stream), peer_pid));
             }
             let error = last_winsock_error();
             if error.raw_os_error() != Some(WSAEWOULDBLOCK) {
@@ -253,7 +273,7 @@ fn query_peer_pid(socket: SOCKET) -> io::Result<u32> {
     Ok(process_id)
 }
 
-fn verify_peer_pid(socket: SOCKET, expected_pid: u32) -> io::Result<()> {
+fn verify_peer_pid(socket: SOCKET, expected_pid: u32) -> io::Result<u32> {
     let peer_pid = query_peer_pid(socket)?;
     if peer_pid != expected_pid {
         return Err(io::Error::new(
@@ -261,7 +281,7 @@ fn verify_peer_pid(socket: SOCKET, expected_pid: u32) -> io::Result<()> {
             "AF_UNIX guest transport peer is not the active QEMU process",
         ));
     }
-    Ok(())
+    Ok(peer_pid)
 }
 
 fn ensure_winsock() -> io::Result<()> {

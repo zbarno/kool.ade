@@ -19,6 +19,9 @@ use windows_sys::Win32::{
     },
 };
 
+#[path = "contained_af_unix_tests.rs"]
+mod contained_af_unix_tests;
+
 /// Boundary: creates private directories in a disposable profile fixture
 /// and validates owner, ACL application and non-reparse handles together.
 /// A pure test cannot exercise kernel ACL inheritance or reparse semantics.
