@@ -205,6 +205,22 @@ observation 54 ms, idle memory 1,088,249,856 bytes, idle CPU 1,616,951 usec
 over 1,000 ms, peak memory 1,191,317,504 bytes, and cleanup 117 ms. This is
 another single-host local run; no hosted KVM runner result is claimed.
 
+On 2026-11-16, the latest merged `main` revision at the time of this record
+(`9442941d828575353020fcb7320259fd94a5fdcd`) passed the trusted-host preflight
+and the complete opt-in KVM acceptance in a delegated user scope. The host was
+Pop!_OS 24.04 LTS, Linux x86_64, kernel `7.2.15-76070215-generic`, with QEMU
+and qemu-img 8.2.2, writable `/dev/kvm`, and delegated cgroup v2 controllers.
+The signed generation 19 guest booted, authenticated companion protocol 1,
+launched Chromium, captured 1280×800 guest and display frames, staged and
+launched the approved QA fixture, recorded the seeded wrong-destination
+assertion as failed, exercised takeover/handback, and cleaned up. The test
+passed in 67.98 seconds: provisioning 42.603s, observation 68ms, idle memory
+1,083,334,656 bytes, idle CPU 1,842,635 usec over 1,000ms, peak memory
+1,190,768,640 bytes, cleanup 143ms. The screenshot digest was
+`d75a31b0b73225a1d14eabf418d84897f1f27e422d0437405cf61afeb5036a16`. This is
+an additional local single-host run; it does not supply a hosted KVM-runner
+result, corrected real-VM rebuild/retest, or broad escape/stress evidence.
+
 The official real-KVM workflow is manually dispatched on protected `main` and
 requires that runner label. A run with `require_kvm_host=false` is explicitly
 not acceptance evidence. The owner-operated usability walkthrough is not a
