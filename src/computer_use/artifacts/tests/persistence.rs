@@ -197,6 +197,54 @@ fn only_explicit_download_grant_can_export_without_overwrite() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn guest_download_export_never_follows_or_overwrites_a_symlink_destination() {
+    use std::os::unix::fs::symlink;
+
+    let (temp, bridge) = bridge();
+    let owner = identity();
+    let grant = bridge
+        .issue_grant(grant_request(
+            &owner,
+            ComputerArtifactFlowV1::UserDownloadFromGuest,
+            "downloads/result.txt",
+            true,
+        ))
+        .unwrap();
+    let bytes = b"untrusted guest data";
+    let receipt = bridge
+        .receive_guest_file(
+            &grant.grant_id,
+            &owner,
+            REV,
+            3,
+            2,
+            "result.txt",
+            bytes,
+            &super::super::validation::sha256(bytes),
+            NOW + 1,
+        )
+        .unwrap();
+    let protected = temp.path().join("protected.txt");
+    fs::write(&protected, b"keep me").unwrap();
+    let destination = temp.path().join("download.txt");
+    symlink(&protected, &destination).unwrap();
+
+    assert!(
+        bridge
+            .export_to_user(&receipt.artifact_id, &owner, &destination, NOW + 2)
+            .is_err()
+    );
+    assert_eq!(fs::read(&protected).unwrap(), b"keep me");
+    assert!(
+        fs::symlink_metadata(&destination)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}
+
 #[test]
 fn personal_guest_file_transfer_fails_closed_until_personal_sessions_exist() {
     let (_temp, bridge) = bridge();

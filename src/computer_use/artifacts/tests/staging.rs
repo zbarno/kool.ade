@@ -181,6 +181,93 @@ fn task_file_staging_rejects_private_paths_symlinks_and_hardlinks() {
 
 #[cfg(unix)]
 #[test]
+fn task_file_staging_rejects_symlinked_ancestors_empty_files_and_size_overruns() {
+    use std::os::unix::fs::symlink;
+
+    let (_temp, bridge) = bridge();
+    let identity = identity();
+    let task = tempfile::tempdir().unwrap();
+    fs::create_dir_all(task.path().join("real")).unwrap();
+    fs::write(task.path().join("real/inside.txt"), b"inside").unwrap();
+    symlink(task.path().join("real"), task.path().join("linked")).unwrap();
+
+    let linked = bridge
+        .issue_grant(grant_request(
+            &identity,
+            ComputerArtifactFlowV1::TaskArtifactToGuest,
+            "linked/inside.txt",
+            false,
+        ))
+        .unwrap();
+    assert!(
+        bridge
+            .stage_task_file(&linked.grant_id, task.path(), REV, &identity, NOW + 1)
+            .is_err()
+    );
+
+    fs::write(task.path().join("empty.txt"), b"").unwrap();
+    let empty = bridge
+        .issue_grant(grant_request(
+            &identity,
+            ComputerArtifactFlowV1::TaskArtifactToGuest,
+            "empty.txt",
+            false,
+        ))
+        .unwrap();
+    assert!(
+        bridge
+            .stage_task_file(&empty.grant_id, task.path(), REV, &identity, NOW + 1)
+            .is_err()
+    );
+
+    fs::write(task.path().join("large.txt"), b"1234").unwrap();
+    let mut oversized = grant_request(
+        &identity,
+        ComputerArtifactFlowV1::TaskArtifactToGuest,
+        "large.txt",
+        false,
+    );
+    oversized.max_bytes = 3;
+    let oversized = bridge.issue_grant(oversized).unwrap();
+    assert!(
+        bridge
+            .stage_task_file(&oversized.grant_id, task.path(), REV, &identity, NOW + 1)
+            .is_err()
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn task_file_staging_rejects_fifos_without_blocking() {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt, time::Instant};
+
+    let (_temp, bridge) = bridge();
+    let identity = identity();
+    let task = tempfile::tempdir().unwrap();
+    let fifo = task.path().join("pipe.txt");
+    let fifo_c = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+    // SAFETY: the C string is NUL terminated and points into this temporary
+    // task directory. No process opens the FIFO, so the bridge must not block.
+    assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o600) }, 0);
+    let grant = bridge
+        .issue_grant(grant_request(
+            &identity,
+            ComputerArtifactFlowV1::TaskArtifactToGuest,
+            "pipe.txt",
+            false,
+        ))
+        .unwrap();
+    let started = Instant::now();
+    assert!(
+        bridge
+            .stage_task_file(&grant.grant_id, task.path(), REV, &identity, NOW + 1)
+            .is_err()
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+}
+
+#[cfg(unix)]
+#[test]
 fn task_build_staging_accepts_opaque_extensionless_outputs_only_for_guest_transfer() {
     let (_temp, bridge) = bridge();
     let identity = identity();

@@ -20,6 +20,35 @@ fn archive_validation_rejects_tar_links_and_excessive_expansion() {
 }
 
 #[test]
+fn archive_validation_rejects_traversal_paths_and_hardlinks() {
+    let mut traversal = tar::Builder::new(Vec::new());
+    let mut file = tar::Header::new_gnu();
+    file.set_path("inside.txt").unwrap();
+    file.set_entry_type(tar::EntryType::Regular);
+    file.set_size(1);
+    file.set_mode(0o600);
+    let path = b"../outside.txt";
+    file.as_mut_bytes()[..100].fill(0);
+    file.as_mut_bytes()[..path.len()].copy_from_slice(path);
+    file.set_cksum();
+    traversal.append(&file, &b"x"[..]).unwrap();
+    let traversal = traversal.into_inner().unwrap();
+    assert!(super::super::validation::validate_content("traversal.tar", &traversal).is_err());
+
+    let mut hardlink = tar::Builder::new(Vec::new());
+    let mut link = tar::Header::new_gnu();
+    link.set_entry_type(tar::EntryType::Link);
+    link.set_size(0);
+    link.set_mode(0o777);
+    link.set_cksum();
+    hardlink
+        .append_link(&mut link, "export.txt", "inside.txt")
+        .unwrap();
+    let hardlink = hardlink.into_inner().unwrap();
+    assert!(super::super::validation::validate_content("hardlink.tar", &hardlink).is_err());
+}
+
+#[test]
 fn normalized_paths_and_display_names_reject_ambiguous_or_unsafe_values() {
     for path in [
         "../secret.txt",
