@@ -93,7 +93,7 @@ pub fn serve_computer_use_worker_stdio_v1(config_path: &std::path::Path) -> anyh
 /// Product entry points must check this gate before advertising or allocating
 /// remote VM sessions. It stays closed until CU-16 accepts real-worker tests.
 pub const fn remote_computer_use_release_gate_open_v1() -> bool {
-    false
+    crate::computer_use::release_gates::remote_worker_r5_enabled()
 }
 
 /// Explicit operator recovery command. It creates a strictly generation-

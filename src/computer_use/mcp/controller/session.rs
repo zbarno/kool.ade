@@ -212,10 +212,8 @@ impl ComputerUseMcpOperationsV1 for ComputerUseMcpControllerV1 {
 
 // R2 remains unavailable until the integrated real-VM public-network,
 // metadata/private-address denial, and proxy-bypass matrix is accepted in #392.
-const INTERNET_RESEARCH_R2_RELEASE_ENABLED_V1: bool = false;
-
 pub(super) fn internet_research_available(role_id: &str, companion_protocol_version: u16) -> bool {
-    INTERNET_RESEARCH_R2_RELEASE_ENABLED_V1
+    crate::computer_use::release_gates::internet_research_r2_enabled()
         && role_id != crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_ROLE_V1
         && companion_protocol_version >= 2
 }

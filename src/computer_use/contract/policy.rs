@@ -93,7 +93,9 @@ impl ComputerPolicyV1 {
         if self.schema_version != 1 {
             return Err("unsupported policy version");
         }
-        if self.capability == ComputerCapabilityV1::HighImpactExternalAction {
+        if self.capability == ComputerCapabilityV1::HighImpactExternalAction
+            && !crate::computer_use::release_gates::high_impact_actions_r4_enabled()
+        {
             return Err("high-impact actions are unsupported until exact transaction grants exist");
         }
         self.identity.validate()?;
