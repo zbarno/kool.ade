@@ -109,6 +109,36 @@ fn closed_release_gates_are_visible_even_when_readiness_tasks_are_verified() {
 }
 
 #[test]
+fn setup_matrix_and_runtime_share_the_same_closed_tier_gates() {
+    let tasks = VM_BASE
+        .iter()
+        .map(|id| task(id, State::Verified))
+        .chain([
+            task("setup:computer:network", State::Verified),
+            task("setup:computer:personal-encryption", State::Verified),
+        ])
+        .collect::<Vec<_>>();
+    let matrix = abilities(&tasks, &[], Some(true), true);
+
+    // A machine with every setup prerequisite present still cannot advertise
+    // a tier until the matching shared release gate is certified. The runtime
+    // and setup surface deliberately consume these same gates.
+    assert!(!crate::computer_use::release_gates::internet_research_r2_enabled());
+    assert!(!crate::computer_use::release_gates::personal_vm_r3_enabled());
+    assert!(!crate::computer_use::release_gates::high_impact_actions_r4_enabled());
+    assert!(!crate::computer_use::release_gates::remote_worker_r5_enabled());
+    for (index, label) in [
+        (2, "Internet computer"),
+        (3, "Personal encrypted computer"),
+        (5, "Sensitive external actions"),
+        (6, "Remote computer worker"),
+    ] {
+        assert_eq!(matrix[index].label, label);
+        assert_eq!(matrix[index].availability, Availability::Unavailable);
+    }
+}
+
+#[test]
 fn current_positive_kvm_scan_proves_kvm_when_no_blocker_task_is_needed() {
     let tasks = VM_BASE
         .iter()
