@@ -206,6 +206,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
     let session_cgroup = cgroup_root.join(format!("koolade-{}", session.identity.session_id));
     let mut provisioning_ms = 0;
     let mut screen_observation_ms = 0;
+    let mut idle_sample_window_ms = 0;
     let mut idle_memory_bytes = 0;
     let mut idle_cpu_usec = 0;
     let mut peak_memory_bytes = 0;
@@ -350,7 +351,9 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         }
 
         let idle_cpu_before = performance::read_cpu_usage_usec(&session_cgroup)?;
+        let idle_sample_started = Instant::now();
         thread::sleep(Duration::from_secs(1));
+        idle_sample_window_ms = idle_sample_started.elapsed().as_millis();
         idle_memory_bytes = performance::read_cgroup_value(&session_cgroup, "memory.current")?;
         idle_cpu_usec =
             performance::read_cpu_usage_usec(&session_cgroup)?.saturating_sub(idle_cpu_before);
@@ -670,7 +673,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         };
         peak_memory_bytes = performance::read_cgroup_value(&session_cgroup, "memory.peak")?;
         println!(
-            "R1 real KVM evidence: image={} companion_protocol={} guest_frame={}x{} display_frame={}x{} image_acquire_ms={} provisioning_ms={} screen_observation_ms={} idle_sample_window_ms=1000 idle_memory_bytes={} idle_cpu_delta_usec={} session_peak_memory_bytes={}",
+            "R1 real KVM evidence: image={} companion_protocol={} guest_frame={}x{} display_frame={}x{} image_acquire_ms={} provisioning_ms={} screen_observation_ms={} idle_sample_window_ms={} idle_memory_bytes={} idle_cpu_delta_usec={} session_peak_memory_bytes={}",
             image.entry().image_digest,
             image.entry().companion_protocol_version,
             observation.width_px,
@@ -680,6 +683,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             image_download_ms,
             provisioning_ms,
             screen_observation_ms,
+            idle_sample_window_ms,
             idle_memory_bytes,
             idle_cpu_usec,
             peak_memory_bytes,
@@ -696,10 +700,23 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         ));
     }
     cleanup::assert_released(&session_directory, &session_cgroup, &overlay_root)?;
-    println!(
-        "R1 real KVM cleanup evidence: cleanup_ms={}",
-        cleanup_started.elapsed().as_millis()
-    );
+    let cleanup_ms = cleanup_started.elapsed().as_millis();
+    println!("R1 real KVM cleanup evidence: cleanup_ms={}", cleanup_ms);
+    performance::assert_acceptance_budgets(performance::AcceptanceMetrics {
+        provisioning_ms,
+        screen_observation_ms,
+        idle_sample_window_ms,
+        idle_memory_bytes,
+        idle_cpu_usec,
+        peak_memory_bytes,
+        cleanup_ms,
+    })
+    .map_err(|error| {
+        format!(
+            "{error}; acceptance result: {}",
+            result.as_ref().err().map_or("passed", String::as_str)
+        )
+    })?;
     result
 }
 
