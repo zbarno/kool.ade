@@ -1,3 +1,4 @@
+#[cfg(target_os = "linux")]
 use x11rb::{
     COPY_DEPTH_FROM_PARENT,
     connection::Connection,
@@ -7,6 +8,7 @@ use x11rb::{
     wrapper::ConnectionExt as WrapperConnectionExt,
 };
 
+#[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let defect_fixture = env!("CARGO_BIN_NAME").contains("defect");
     let (connection, screen_index) = x11rb::connect(None)?;
@@ -73,6 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 fn set_title(
     connection: &impl Connection,
     window: u32,
@@ -100,4 +103,10 @@ fn set_title(
     )?;
     connection.flush()?;
     Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    eprintln!("this Computer Use QA fixture is only supported on Linux");
+    std::process::exit(1);
 }
