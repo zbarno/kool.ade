@@ -235,6 +235,15 @@ run and 42.746 seconds for the corrected run. This is a single-host local
 result and does not replace hosted KVM execution, broad escape/stress
 coverage, or the live viewer and recovery gates.
 
+Both fresh-session QA runs also injected an unexpected QEMU process crash after
+the GUI/QA and takeover checks. The live backend collected the stopped process
+with no normal exit code, then a fresh backend instance recovered exactly one
+matching session event and removed the session directory, cgroup, and overlay.
+Recovery and cleanup took 7 ms for the seeded-defect run and 10 ms for the
+corrected-build run. This verifies QEMU process crash cleanup and durable
+session recovery within the same controller process; it does not exercise a
+controller process restart or repeated resource-exhaustion stress.
+
 The official real-KVM workflow is manually dispatched on protected `main` and
 requires that runner label. A run with `require_kvm_host=false` is explicitly
 not acceptance evidence. The owner-operated usability walkthrough is not a

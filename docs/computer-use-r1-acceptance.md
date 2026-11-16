@@ -67,6 +67,13 @@ cleaned up. Exact screenshot digests and timings are in the
 [release evidence matrix](computer-use-release-evidence.md). This is local
 single-host evidence; no hosted KVM runner is registered.
 
+Each run then killed the owned QEMU process, required collection to report a
+stopped machine with no normal exit code, and called recovery on a fresh
+backend instance. Recovery returned one matching event and removed the
+session directory, cgroup, and overlay in 7 ms and 10 ms. This covers guest
+process crash cleanup and backend reconstruction, not a full controller
+process restart or repeated resource-exhaustion stress.
+
 ## Evidence boundary
 
 The host preflight records OS/architecture, tool versions, KVM device
@@ -80,8 +87,10 @@ actor capabilities were revoked. The cached-image run took 46.51 seconds and
 reported 1280×800 guest and QEMU display frames. This did not exercise the live
 Task Details viewer UI or a manually operated external handoff.
 
-File transfer, guest/host isolation, QA repair, crash recovery, performance
-measurements, and accessibility remain unverified. The test's opt-in status
+File transfer and guest/host isolation remain unverified. The corrected QA
+build, QEMU process crash cleanup, performance samples, and unsupported
+accessibility denial are now covered, but controller process restart and
+resource-exhaustion stress remain unverified. The test's opt-in status
 means ordinary CI can skip it; only the locally observed KVM run is evidence
 here. #392 remains open while its other acceptance criteria are completed.
 

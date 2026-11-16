@@ -20,10 +20,25 @@ pub(super) fn assert_released(
         }
     }
 
-    let mut entries = fs::read_dir(overlay_directory)
+    let entries = fs::read_dir(overlay_directory)
         .map_err(|error| format!("read released overlay directory: {error}"))?;
-    if let Some(entry) = entries.next() {
+    for entry in entries {
         let entry = entry.map_err(|error| format!("read released overlay entry: {error}"))?;
+        // Recovery validates and creates the personal overlay root even when
+        // this acceptance session is disposable. An empty root owns no session
+        // data and is intentionally retained for future personal sessions.
+        if entry.file_name() == "personal" {
+            let metadata = fs::symlink_metadata(entry.path())
+                .map_err(|error| format!("inspect personal overlay root: {error}"))?;
+            if metadata.file_type().is_dir()
+                && fs::read_dir(entry.path())
+                    .map_err(|error| format!("read personal overlay root: {error}"))?
+                    .next()
+                    .is_none()
+            {
+                continue;
+            }
+        }
         return Err(format!(
             "released session overlay remains: {}",
             entry.path().display()
