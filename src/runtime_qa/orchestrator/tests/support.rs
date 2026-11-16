@@ -133,7 +133,7 @@ pub(super) fn action(
     }
 }
 
-pub(super) fn fixture() -> (QaRunRequestV1, Vec<QaScenarioV1>, QaTaskServiceLeaseV1) {
+pub(crate) fn fixture() -> (QaRunRequestV1, Vec<QaScenarioV1>, QaTaskServiceLeaseV1) {
     let uid = || uuid::Uuid::new_v4().hyphenated().to_string();
     let sha = || "a".repeat(64);
     let request = QaRunRequestV1 {

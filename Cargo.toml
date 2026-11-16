@@ -20,6 +20,10 @@ path = "src/bin/koolade_qa_desktop_fixture.rs"
 required-features = ["qa-desktop-driver-image"]
 
 [[bin]]
+name = "koolade-computer-use-qa-defect-fixture"
+path = "src/bin/computer_use_qa_gui_fixture.rs"
+
+[[bin]]
 name = "koolade-computer-use-agent"
 path = "src/bin/koolade_computer_use_agent.rs"
 

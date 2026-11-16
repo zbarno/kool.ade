@@ -79,7 +79,11 @@ jobs:
         run: python3 scripts/check-computer-use-r1-kvm-host.py --github-summary "$GITHUB_STEP_SUMMARY"
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Build approved seeded QA GUI fixture
+        run: cargo +1.98.1 build --locked --bin koolade-computer-use-qa-defect-fixture
       - name: Boot signed guest and verify authenticated Computer Use actions and display
         env:
           KOOLADE_COMPUTER_USE_R1_REAL_KVM: "1"
+          KOOLADE_R1_REAL_KVM_HOST_SECRET_CANARY: synthetic-canary
+          KOOLADE_R1_QA_DEFECT_FIXTURE: ${{ github.workspace }}/target/debug/koolade-computer-use-qa-defect-fixture
         run: cargo +1.98.1 test --locked --lib computer_use_r1_real_kvm_acceptance -- --nocapture
