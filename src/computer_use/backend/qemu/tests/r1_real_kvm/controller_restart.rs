@@ -121,11 +121,10 @@ pub(super) fn run() -> Result<(), String> {
     let session_cgroup = cgroup_root.join(format!("koolade-{}", ready.session_id));
     cleanup::assert_released(&runtime, &session_cgroup, &root.join("overlays"))?;
     println!(
-        "R1 real KVM controller restart evidence: controller_signal={} recovered_events={} recovery_ms={} session={}",
+        "R1 real KVM controller restart evidence: controller_signal={} recovered_events={} recovery_ms={}",
         controller_status.signal().unwrap_or_default(),
         recovered.len(),
         recovery_ms,
-        ready.session_id,
     );
     Ok(())
 }
