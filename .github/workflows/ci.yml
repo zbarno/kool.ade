@@ -648,6 +648,12 @@ jobs:
           computer_use::windows_backend::transport::af_unix::tests::peer_pid_ioctl_matches_the_connected_windows_af_unix_client
           --manifest-path tests/windows-computer-use-storage/Cargo.toml
           -- --nocapture
+      - name: Verify contained child connects to the app-owned AF_UNIX listener
+        run: >-
+          cargo +1.98.1 test --locked
+          computer_use::windows_backend::storage::tests::contained_af_unix_tests::contained_guest_client_connects_under_job
+          --manifest-path tests/windows-computer-use-storage/Cargo.toml
+          -- --exact --nocapture
   # Supersedes the Fedora 44 Pi host-runtime smoke test: runtime availability
   # now comes from the pinned executor image, exercised by rootless Docker E2E.
   docker-only-check:
