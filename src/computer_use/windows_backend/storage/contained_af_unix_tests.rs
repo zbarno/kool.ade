@@ -12,6 +12,7 @@ use windows_sys::Win32::Networking::WinSock::{
 };
 
 const CHILD_SOCKET_ENV: &str = "KOOLADE_TEST_WINDOWS_AF_UNIX_CHILD_SOCKET";
+const QEMU_BINARY_ENV: &str = "KOOLADE_TEST_WINDOWS_QEMU";
 const CHILD_TEST_FILTER: &str = "computer_use::windows_backend::storage::tests::contained_af_unix_tests::contained_guest_client_connects_under_job";
 
 /// Boundary: a current-test-executable child is created suspended, assigned
@@ -30,11 +31,11 @@ fn contained_guest_client_connects_under_job() {
     let storage = WindowsVmStorage::open_at(temporary.path()).expect("private test storage");
     let session_id = "123e4567-e89b-12d3-a456-426614174000";
     let socket_path = storage
-        .guest_control_socket_path(&session_id)
+        .guest_control_socket_path(session_id)
         .expect("app-owned socket path");
     assert!(socket_path.to_string_lossy().len() < 108);
     let listener = storage
-        .bind_guest_control_listener(&session_id)
+        .bind_guest_control_listener(session_id)
         .expect("bind app-owned guest listener");
 
     let limits = super::super::super::WindowsVmJobLimits::new(1024 * 1024 * 1024, 1_000, 1)
@@ -76,6 +77,109 @@ fn contained_guest_client_connects_under_job() {
     assert!(
         !temporary_path.exists(),
         "temporary app-owned storage is removed"
+    );
+}
+
+/// Integration boundary: run the trusted MSYS2 QEMU package as a contained
+/// client of the app-owned Windows AF_UNIX listener. This proves the actual
+/// QEMU socket chardev mode and Windows peer-PID API agree; it does not certify
+/// WHPX availability, guest boot, display forwarding, or the production image.
+#[test]
+fn qemu_af_unix_client_connects_from_inside_a_job() {
+    let qemu = std::path::PathBuf::from(
+        std::env::var_os(QEMU_BINARY_ENV)
+            .expect("native Windows CI must provide QEMU from the signed MSYS2 package"),
+    );
+    assert!(qemu.is_absolute(), "QEMU binary path must be absolute");
+    assert!(qemu.is_file(), "QEMU binary must exist");
+    let qemu_data = qemu
+        .parent()
+        .and_then(std::path::Path::parent)
+        .map(|prefix| prefix.join("share").join("qemu"))
+        .expect("MSYS2 QEMU binary has a package prefix");
+    assert!(qemu_data.is_dir(), "QEMU package data directory must exist");
+
+    let temporary = super::af_unix_tests::ShortStorageRoot::new();
+    let storage = WindowsVmStorage::open_at(temporary.path()).expect("private test storage");
+    let session_id = "123e4567-e89b-12d3-a456-426614174001";
+    let socket_path = storage
+        .guest_control_socket_path(session_id)
+        .expect("app-owned guest listener path");
+    assert!(socket_path.to_string_lossy().len() < 108);
+    assert!(
+        !socket_path.to_string_lossy().contains(','),
+        "QEMU key-value socket path must not contain option delimiters"
+    );
+    let listener = storage
+        .bind_guest_control_listener(session_id)
+        .expect("bind app-owned guest listener");
+
+    let limits = super::super::super::WindowsVmJobLimits::new(2 * 1024 * 1024 * 1024, 1_000, 4)
+        .expect("bounded QEMU test limits");
+    let mut command = Command::new(&qemu);
+    command.args([
+        "-no-user-config",
+        "-nodefaults",
+        "-L",
+        qemu_data.to_str().expect("QEMU data path is UTF-8"),
+        "-machine",
+        "q35",
+        "-accel",
+        "tcg",
+        "-smp",
+        "1",
+        "-m",
+        "512",
+        "-display",
+        "none",
+        "-vnc",
+        "none",
+        "-nic",
+        "none",
+        "-monitor",
+        "none",
+        "-serial",
+        "none",
+        "-parallel",
+        "none",
+    ]);
+    command.arg("-chardev").arg(format!(
+        "socket,id=guestcontrol,path={},server=off",
+        socket_path.display()
+    ));
+    command.args([
+        "-device",
+        "virtio-serial-pci",
+        "-device",
+        "virtserialport,chardev=guestcontrol,name=org.koolade.computer-control.v1",
+        "-S",
+    ]);
+    let mut qemu =
+        super::super::super::process::WindowsVmProcessJob::spawn_contained_with_test_socket_path(
+            command,
+            limits,
+            &socket_path,
+        )
+        .expect("start QEMU suspended, contain it, then resume");
+
+    let peer_pid = listener
+        .accept_child_peer_pid_for_test(&mut qemu, Duration::from_secs(20))
+        .expect("QEMU socket chardev connects as the contained QEMU child");
+    assert_eq!(peer_pid, qemu.id(), "QEMU peer identity is the job child");
+
+    let started = Instant::now();
+    qemu.terminate(Duration::from_secs(10))
+        .expect("terminate QEMU job within a bound");
+    assert!(started.elapsed() <= Duration::from_secs(11));
+    assert!(qemu.try_wait().expect("reap contained QEMU").is_some());
+
+    drop(listener);
+    drop(storage);
+    let temporary_path = temporary.path().to_path_buf();
+    drop(temporary);
+    assert!(
+        !temporary_path.exists(),
+        "temporary app-owned QEMU test storage is removed"
     );
 }
 

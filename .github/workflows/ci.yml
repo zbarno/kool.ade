@@ -624,14 +624,34 @@ jobs:
           --manifest-path tests/windows-copilot-policy-hooks/Cargo.toml
   windows-computer-use-storage:
     # Run the native storage boundary fixtures on Windows; Unix hosts cannot
-    # exercise AF_UNIX reparse tags or Windows owner/DACL inheritance.
+    # exercise AF_UNIX reparse tags, Windows owner/DACL inheritance, or QEMU's
+    # native AF_UNIX client behavior.
     needs: [format, clippy, core-implementation, docs]
-    name: Windows Computer Use storage
+    name: Windows Computer Use storage and QEMU transport
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install MSYS2 and its signed QEMU package
+        id: msys2
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          update: true
+          install: mingw-w64-x86_64-qemu
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Verify installed QEMU and expose its absolute path
+        shell: pwsh
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $qemu = Join-Path $env:MSYS2_LOCATION 'mingw64\bin\qemu-system-x86_64.exe'
+          if (-not (Test-Path -LiteralPath $qemu -PathType Leaf)) {
+            throw "Signed MSYS2 package did not install QEMU at $qemu"
+          }
+          & $qemu --version
+          if ($LASTEXITCODE -ne 0) { throw 'QEMU version probe failed' }
+          "KOOLADE_TEST_WINDOWS_QEMU=$qemu" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Verify AF_UNIX storage leaf validation
         run: >-
           cargo +1.98.1 test --locked
@@ -654,6 +674,12 @@ jobs:
         run: >-
           cargo +1.98.1 test --locked
           computer_use::windows_backend::storage::tests::contained_af_unix_tests::contained_guest_client_connects_under_job
+          --manifest-path tests/windows-computer-use-storage/Cargo.toml
+          -- --exact --nocapture
+      - name: Verify contained QEMU connects through native AF_UNIX client mode
+        run: >-
+          cargo +1.98.1 test --locked
+          computer_use::windows_backend::storage::tests::contained_af_unix_tests::qemu_af_unix_client_connects_from_inside_a_job
           --manifest-path tests/windows-computer-use-storage/Cargo.toml
           -- --exact --nocapture
   # Supersedes the Fedora 44 Pi host-runtime smoke test: runtime availability
