@@ -32,6 +32,8 @@ mod cleanup;
 mod controller_restart;
 #[path = "r1_real_kvm/host_environment.rs"]
 mod host_environment;
+#[path = "r1_real_kvm/memory_pressure_stress.rs"]
+mod memory_pressure_stress;
 #[path = "r1_real_kvm/performance.rs"]
 mod performance;
 #[path = "r1_real_kvm/process_limit_stress.rs"]
@@ -696,6 +698,11 @@ fn run_real_kvm_acceptance(root: &Path, wait_for_controller_restart: bool) -> Re
         process_limit_stress::assert_session_task_limit_enforced(
             &std::env::current_exe()
                 .map_err(|error| format!("locate process-limit test: {error}"))?,
+            &session_cgroup,
+        )?;
+        memory_pressure_stress::assert_session_memory_pressure_bounded(
+            &std::env::current_exe()
+                .map_err(|error| format!("locate memory-pressure test: {error}"))?,
             &session_cgroup,
         )?;
         peak_memory_bytes = performance::read_cgroup_value(&session_cgroup, "memory.peak")?;

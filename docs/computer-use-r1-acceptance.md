@@ -120,9 +120,24 @@ additional worker threads; `pids.events max` increased from 0 to 1, proving the
 kernel denied an excess task, and the child joined all successfully created
 workers. The full acceptance passed in 128.29 seconds, recorded a 1,187,405,824
 byte session memory peak, and recovered the killed QEMU process in 6 ms. This
-is one local task-limit stress sample; memory-pressure and concurrent-session
-exhaustion tests remain open. The trusted-host workflow run
+is one local task-limit stress sample. The trusted-host workflow run
 [43920061533](https://github.com/zbarno/kool.ade/actions/runs/43920061533)
 passed its policy check but failed closed at runner inventory: GitHub returned
 HTTP 403 to the workflow token, and the repository has no registered
 self-hosted runner with the `computer-use-kvm` label.
+
+On 2026-11-17, source including the bounded memory-pressure subcase passed the
+full opt-in real-KVM acceptance on the same Linux x86_64 host. In the seeded
+defect session, a separate child process joined the session cgroup and touched
+anonymous pages until `memory.current` reached at least 85% of its 2 GiB hard
+limit. The cgroup peak was 1,827,086,336 bytes, below the 2,147,483,648-byte
+limit; `memory.events oom_kill` stayed at 0; and after the child exited,
+`memory.current` returned from 1,189,720,064 to 1,189,126,144 bytes. The run
+also detected the seeded QA defect, observed `pids.events max` increase 0→1,
+recovered both the SIGKILLed controller and QEMU, and removed the session
+resources. It passed in 138.65 seconds with 43.801-second provisioning,
+89-millisecond screen observation, and 7-millisecond QEMU recovery. This
+checks bounded memory pressure and release on one host; it does not test OOM
+kill behavior, repeated or high-concurrency stress, or another host. The
+acceptance remains opt-in and no hosted runner with the `computer-use-kvm`
+label is registered.

@@ -426,3 +426,19 @@ directory and failed when one acceptance process could not spawn its
 process-limit helper (`ENOENT`) during concurrent compilation. The passing
 rerun used the already-built test executable for both concurrent sessions, so
 Cargo did not replace that executable while its subprocesses were running.
+
+On 2026-11-17, a bounded memory-pressure subcase was added to the opt-in
+real-KVM acceptance and passed on the same trusted local Linux x86_64 host
+against signed generation 19. In the seeded-defect session, a separate child
+joined the session cgroup and touched anonymous pages until `memory.current`
+reached at least 85% of its 2 GiB hard limit. The cgroup peak was
+1,827,086,336 bytes, below the 2,147,483,648-byte limit; `memory.events
+oom_kill` stayed at 0; and after child exit `memory.current` returned from
+1,189,720,064 to 1,189,126,144 bytes. The same run detected the seeded QA
+defect, observed `pids.events max` increase 0→1, recovered the SIGKILLed
+controller and QEMU processes, and removed the session resources. It passed in
+138.65 seconds with 43.801-second provisioning, 89-millisecond screen
+observation, and 7-millisecond QEMU recovery. This is a bounded memory-pressure
+and recovery sample on one host; it does not exercise OOM kill behavior,
+repeated or high-concurrency stress, or another host. The hosted real-KVM
+runner is still absent, and the R1 release gate remains closed.
