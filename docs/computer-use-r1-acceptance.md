@@ -102,9 +102,11 @@ File transfer and broad guest/host isolation remain unverified. The corrected
 QA build, QEMU crash cleanup, controller process restart, performance samples,
 unsupported accessibility denial, and a bounded pids.max exhaustion check are
 covered on this host. The task-limit check demonstrates one denied thread
-creation and clean worker teardown; repeated, concurrent, memory-pressure, and
-other-host exhaustion cases remain unverified. The test's opt-in status means
-ordinary CI can skip it; only the locally observed KVM run is evidence here.
+creation and clean worker teardown. The bounded memory-pressure and
+two-session stress evidence below now covers one concurrent scenario; repeated
+high-concurrency, memory exhaustion, and other-host cases remain unverified.
+The test's opt-in status means ordinary CI can skip it; only the locally
+observed KVM run is evidence here.
 #392 remains open while its other acceptance criteria are completed.
 
 The existing ordinary CI suite continues to cover deterministic component
@@ -141,3 +143,17 @@ checks bounded memory pressure and release on one host; it does not test OOM
 kill behavior, repeated or high-concurrency stress, or another host. The
 acceptance remains opt-in and no hosted runner with the `computer-use-kvm`
 label is registered.
+
+On 2026-11-17, the seeded-defect and corrected-build real-KVM acceptances ran
+simultaneously from the same already-built test executable in separate
+delegated scopes. Both guests passed: the seeded defect was detected and the
+corrected build passed. Each session independently reached at least 85% of its
+2 GiB memory cap without an OOM kill and released its memory after the child
+exited. The seeded session peaked at 1,844,293,632 bytes and returned from
+1,172,983,808 to 1,173,274,624 bytes; the corrected session peaked at
+1,857,171,456 bytes and returned from 1,186,263,040 to 1,186,082,816 bytes.
+Both denied an excess task through `pids.max`, recovered the controller and
+QEMU, and cleaned their own cgroup, overlay, and session directory. The runs
+completed in 156.21 and 156.06 seconds, respectively. This demonstrates two
+simultaneous stressed sessions on one host; larger concurrency, repeated
+stress, actual OOM termination, and hosted or multi-host KVM remain unverified.
