@@ -288,6 +288,37 @@ are.
 Until those gaps are addressed and the corresponding issue evidence is
 updated, #392 and #375 stay open and unsupported tiers remain fail-closed.
 
+## Live guest network-denial probe
+
+The R1 real-KVM QA fixture now attempts bounded TCP connections from the
+approved staged guest application to `1.1.1.1:443`, the metadata link-local
+address `169.254.169.254:80`, and QEMU's conventional user-mode gateway
+`10.0.2.2:22`. Its authenticated window title reports whether every probe was
+blocked, and the production QA scenario requires that state before accepting
+the seeded-defect or corrected-build assertion. The same real-VM run inspects
+the effective QEMU PCI graph, rejects every unapproved device, and verifies
+that QMP refuses network-device hotplug. Component-level transfer denial
+fixtures and policy tests remain separate evidence; this probe does not prove
+general host escape resistance or non-TCP denial by itself.
+
+On 2026-11-17, both seeded-defect and corrected-build scenarios passed on the
+local Pop!_OS 24.04 Linux x86_64 host with QEMU/qemu-img 8.2.2, writable
+`/dev/kvm`, and delegated cgroup v2, against the published signed generation
+19 image (`sha256:53ca225f40a0229085cf8da26b8e205b94052679fc39e0903a6999e6dee706ec`).
+Both runs observed the required guest network-denial state, accepted the live
+QMP network/device checks, authenticated 1280x800 guest and display frames,
+and passed controller restart recovery, kernel `pids.max` denial, QEMU crash
+recovery, and cleanup. Seeded-defect completed in 135.10s (expected QA
+assertion failed; screenshot SHA-256
+`9482bdb142468f41b5c5b192957e00189d73770a64b0c1eac95e4954162dc8df`); the
+corrected build completed in 133.26s (expected QA assertion passed; screenshot
+SHA-256 `69986be27f63ebf60374fa22d1a002bd55afd3ab4b5913c631d4d760dd688221`).
+Provisioning took 41.808s and 42.076s, screen observation 75ms and 67ms,
+session peak memory 1,200,566,272 and 1,183,977,472 bytes, controller restart
+recovery 139ms and 133ms, QEMU crash recovery 7ms and 6ms, and cleanup 7ms and
+6ms. These are local single-host results from the PR working tree; they are
+not a hosted KVM job result or broad escape/stress certification.
+
 A bounded process-limit stress check was added to the opt-in real-KVM suite.
 On 2026-11-16, both seeded-defect and corrected-build VM runs reached
 `pids.max=128`, observed the kernel denial counter rise from 0 to 1, and
