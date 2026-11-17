@@ -6,6 +6,9 @@
 
 use super::backend::ComputerHostPlatformV1;
 
+#[cfg(unix)]
+#[allow(dead_code)] // Consumed by the macOS lifecycle adapter once it is wired in.
+mod process;
 #[allow(dead_code)] // The launch plan remains disconnected while containment is incomplete.
 mod qemu_plan;
 
