@@ -177,6 +177,9 @@ pub enum GuestMessageV1 {
         next_offset: u64,
         complete: bool,
     },
+    ArtifactWriteRejected {
+        transfer_id: String,
+    },
     ArtifactAbort {
         transfer_id: String,
     },

@@ -214,6 +214,9 @@ impl AuthenticatedGuestChannelV1 {
             {
                 Ok((next_offset, complete))
             }
+            GuestMessageV1::ArtifactWriteRejected {
+                transfer_id: response_id,
+            } if response_id == transfer_id => Err(GuestProtocolErrorV1::Io),
             _ => Err(GuestProtocolErrorV1::Replay),
         }
     }
