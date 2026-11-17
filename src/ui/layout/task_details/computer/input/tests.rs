@@ -1,4 +1,43 @@
-use super::{guest_pointer_position, viewer_size};
+use super::{add_accessible_frame_image, guest_pointer_position, viewer_size};
+
+// This headless egui frame checks the production widget's generated AccessKit
+// semantics at compact and desktop widths; it needs no host VM or provider.
+#[test]
+fn live_viewer_has_a_screen_reader_label_at_compact_and_desktop_widths() {
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let texture = context.load_texture(
+        "computer-viewer-accessibility-test",
+        egui::ColorImage::new([1, 1], vec![egui::Color32::WHITE]),
+        egui::TextureOptions::LINEAR,
+    );
+
+    for width in [320.0, 1280.0] {
+        let mut output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, 720.0),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                let size = viewer_size([1280, 800], ui.available_width());
+                let response = add_accessible_frame_image(ui, &texture, size, false);
+                assert!(response.rect.width() <= width);
+            },
+        );
+        let tree = output
+            .platform_output
+            .accesskit_update
+            .expect("egui should publish an accessibility tree update");
+        assert!(tree.nodes.iter().any(|(_, node)| {
+            node.role() == egui::accesskit::Role::Image
+                && node.label().is_some_and(|label| label == "Live VM desktop")
+        }));
+        output.textures_delta.clear();
+    }
+}
 
 #[test]
 fn viewer_fits_wide_and_narrow_viewports_without_upscaling() {
