@@ -137,3 +137,5 @@ jobs:
              printf "%s\n" "$claude_output" | grep -Fq "$EXPECTED_CLAUDE_VERSION"; \
              test ! -e /var/run/docker.sock; \
              if touch /provider-root-write 2>/dev/null; then exit 1; fi'
+      - name: Exercise synthetic managed-hook containment
+        run: bash containers/provider-cli/tests/run-rootless-containment.sh koolade-provider-cli:candidate
