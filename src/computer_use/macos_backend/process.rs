@@ -1,7 +1,9 @@
 //! Bounded macOS QEMU child lifecycle primitives.
 //!
-//! Process groups and rlimits bound a trusted QEMU process; they are not a
-//! sandbox and do not certify guest/host isolation or open the release gate.
+//! Process groups and CPU/file rlimits bound a trusted QEMU process; they are
+//! not a sandbox and do not certify guest/host isolation or open the release
+//! gate. Darwin rejects RLIMIT_AS, so the caller must bound guest RAM in the
+//! QEMU launch configuration; this module cannot enforce a host memory cap.
 
 use std::{
     io,
@@ -40,6 +42,7 @@ impl MacOsVmProcessV1 {
                 "macOS QEMU requires an absolute executable and nonzero resource limits",
             ));
         }
+        #[cfg(not(target_os = "macos"))]
         let memory_limit = libc::rlimit {
             rlim_cur: memory_bytes,
             rlim_max: memory_bytes,
@@ -68,6 +71,7 @@ impl MacOsVmProcessV1 {
                 if libc::setpgid(0, 0) != 0 {
                     return Err(io::Error::last_os_error());
                 }
+                #[cfg(not(target_os = "macos"))]
                 set_limit(libc::RLIMIT_AS, &memory_limit)?;
                 set_limit(libc::RLIMIT_CPU, &cpu_limit)?;
                 set_limit(libc::RLIMIT_CORE, &no_core)?;
