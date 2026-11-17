@@ -12,12 +12,11 @@ impl MacOsVmProcessV1 {
     pub(crate) fn spawn_qemu(
         plan: &super::super::qemu_plan::MacOsQemuLaunchPlanV1,
         executable: &Path,
-        guest_memory_bytes: u64,
         cpu_time_limit: Duration,
     ) -> io::Result<Self> {
         if !executable.is_absolute()
             || executable.file_name().and_then(|name| name.to_str()) != Some(plan.executable)
-            || !(512 * 1024 * 1024..=MAX_GUEST_MEMORY_BYTES).contains(&guest_memory_bytes)
+            || !(512 * 1024 * 1024..=MAX_GUEST_MEMORY_BYTES).contains(&plan.memory_bytes)
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -26,7 +25,7 @@ impl MacOsVmProcessV1 {
         }
         let mut command = Command::new(executable);
         command.args(&plan.arguments);
-        Self::spawn(command, guest_memory_bytes, cpu_time_limit)
+        Self::spawn(command, plan.memory_bytes, cpu_time_limit)
     }
 }
 
@@ -61,7 +60,6 @@ mod tests {
             MacOsVmProcessV1::spawn_qemu(
                 &plan,
                 Path::new("qemu-system-aarch64"),
-                2 * 1024 * 1024 * 1024,
                 Duration::from_secs(60),
             )
             .is_err()
@@ -70,16 +68,17 @@ mod tests {
             MacOsVmProcessV1::spawn_qemu(
                 &plan,
                 Path::new("/app/bin/qemu-system-x86_64"),
-                2 * 1024 * 1024 * 1024,
                 Duration::from_secs(60),
             )
             .is_err()
         );
+
+        let mut over_budget = plan;
+        over_budget.memory_bytes = MAX_GUEST_MEMORY_BYTES + 1;
         assert!(
             MacOsVmProcessV1::spawn_qemu(
-                &plan,
+                &over_budget,
                 Path::new("/app/bin/qemu-system-aarch64"),
-                MAX_GUEST_MEMORY_BYTES + 1,
                 Duration::from_secs(60),
             )
             .is_err()

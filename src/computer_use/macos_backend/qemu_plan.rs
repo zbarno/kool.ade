@@ -18,6 +18,9 @@ const MAX_UNIX_SOCKET_PATH_BYTES: usize = 103;
 pub(crate) struct MacOsQemuLaunchPlanV1 {
     pub(crate) executable: &'static str,
     pub(crate) arguments: Vec<OsString>,
+    /// Guest RAM encoded into `arguments`; process launch derives its resource
+    /// bound from this value rather than accepting a second caller value.
+    pub(crate) memory_bytes: u64,
     pub(crate) release_enabled: bool,
 }
 
@@ -143,6 +146,7 @@ pub(crate) fn build_macos_qemu_launch_plan(
     Some(MacOsQemuLaunchPlanV1 {
         executable,
         arguments: raw.iter().map(OsString::from).collect(),
+        memory_bytes: memory_mib * MIB,
         // Planning a launch never certifies the host or opens its support gate.
         release_enabled: false,
     })
