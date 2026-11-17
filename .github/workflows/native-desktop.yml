@@ -96,6 +96,16 @@ jobs:
         shell: bash
         run: cargo +1.98.1 clippy --locked --lib --bin koolade -- -D warnings 2>&1 | tee dist/native/app-clippy.log
 
+      - name: Test macOS Computer Use readiness and process lifecycle
+        if: startsWith(matrix.target, 'x86_64-apple-') || startsWith(matrix.target, 'aarch64-apple-')
+        shell: bash
+        run: cargo +1.98.1 test --locked --lib computer_use::macos_backend 2>&1 | tee dist/native/computer-use-tests.log
+
+      - name: Test Windows Computer Use readiness
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: bash
+        run: cargo +1.98.1 test --locked --lib computer_use::windows_backend::tests 2>&1 | tee dist/native/computer-use-tests.log
+
       - name: Test native desktop executable
         shell: bash
         run: cargo +1.98.1 test --locked --test native_cli 2>&1 | tee dist/native/tests.log
