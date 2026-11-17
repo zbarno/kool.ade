@@ -121,12 +121,17 @@ After accept, the listener queries the Windows AF_UNIX peer PID and requires it
 to match the live QEMU child before constructing the guest channel. The socket
 leaf is separately checked for its exact session location, reparse tag, owner,
 and private ACL. Native Windows fixtures cover those checks and the peer-PID
-query. The QEMU launch plan now selects the socket client mode, but the runtime
-gate still fails closed: no pinned, trusted QEMU build has yet proved Windows
-AF_UNIX client behavior end to end. These slices do not start a VM, implement a
-display/input proxy, provide a Windows disk quota, or complete native host
-acceptance. Guest-visible virtual disk capacity is bounded by the session
-policy, but physical qcow2 growth is not a host disk quota.
+query. The native CI job also installs the QEMU package through MSYS2's signed
+package manager and runs QEMU's actual AF_UNIX client chardev inside the
+production Job Object/process-to-listener fixture. This verifies the QEMU
+client mode and connected peer identity on Windows; it does not verify WHPX VM
+boot, QEMU packaging for application releases, guest display/input, or the
+production guest image. The runtime gate remains closed until a versioned,
+application-trusted QEMU binary is pinned and consumed by a complete lifecycle
+adapter. These slices do not start the production VM, implement a display/input
+proxy, provide a Windows disk quota, or complete native host acceptance.
+Guest-visible virtual disk capacity is bounded by the session policy, but
+physical qcow2 growth is not a host disk quota.
 
 ## Required deterministic tests
 
