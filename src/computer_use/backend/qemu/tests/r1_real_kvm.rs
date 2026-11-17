@@ -8,6 +8,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use sha2::Digest as _;
+
 use crate::computer_use::{
     ComputerActionActorV1, ComputerActionPayloadV1, ComputerActionV1, ComputerBackend,
     ComputerKeyV1, ComputerLifecycleV1, ComputerMachineStateV1, ComputerNetworkProfileV1,
@@ -77,7 +79,12 @@ impl ComputerImageDownloadApprovalV1 for TestImageApproval {
 /// enforced the session's CPU, memory, swap, and task limits. An approved
 /// native QA fixture crosses the P15 bridge and authenticated guest channel,
 /// launches through the guest helper, and runs through the production QA
-/// scenario driver. A separate child test moves itself into the live VM
+/// scenario driver. The corrected fixture creates a sentinel and symlink in
+/// guest Downloads; an authenticated write to the symlink must not receive a
+/// successful artifact acknowledgement. The pinned companion closes the active
+/// channel on this filesystem error, so the live test records the sentinel
+/// before the probe while unit tests verify that the target remains unchanged.
+/// A separate child test moves itself into the live VM
 /// cgroup, fills the configured task allowance with bounded worker threads,
 /// and confirms the kernel rejects additional tasks without leaving any behind;
 /// a unit test cannot prove the delegated pids controller enforces that limit.
@@ -734,6 +741,46 @@ fn run_real_kvm_acceptance(root: &Path, wait_for_controller_restart: bool) -> Re
             loop {
                 thread::sleep(Duration::from_secs(60));
             }
+        }
+
+        if std::env::var("KOOLADE_R1_QA_BUILD").as_deref() == Ok("corrected") {
+            let sentinel = channel
+                .read_artifact_chunk(
+                    &session,
+                    &uuid::Uuid::new_v4().to_string(),
+                    "koolade-bridge-sentinel.txt",
+                    0,
+                    unix_time_ms()?,
+                )
+                .map_err(|error| {
+                    format!("read guest artifact sentinel before attack: {error:?}")
+                })?;
+            if sentinel.2 != b"original guest sentinel" || !sentinel.3 {
+                return Err("guest artifact sentinel had unexpected contents before attack".into());
+            }
+            let payload = b"unauthorized replacement";
+            let digest = format!("sha256:{:x}", sha2::Sha256::digest(payload));
+            let result = channel.write_artifact_chunk(
+                &session,
+                &uuid::Uuid::new_v4().to_string(),
+                "koolade-bridge-link.txt",
+                0,
+                payload.len() as u64,
+                &digest,
+                payload,
+                unix_time_ms()?,
+            );
+            if result.is_ok() {
+                return Err(
+                    "live symlink-target write received a successful artifact acknowledgement"
+                        .into(),
+                );
+            }
+            eprintln!(
+                "R1 live artifact symlink probe: no successful write acknowledgement ({:?}); pre-attack sentinel SHA-256 {}",
+                result.unwrap_err(),
+                sentinel.1,
+            );
         }
 
         // Simulate an unexpected hypervisor exit after the session has carried

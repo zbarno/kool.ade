@@ -16,6 +16,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         "network probe unexpectedly connected"
     };
+    let artifact_state = if defect_fixture {
+        ""
+    } else {
+        prepare_artifact_symlink_fixture()?;
+        "; artifact symlink fixture ready"
+    };
     let (connection, screen_index) = x11rb::connect(None)?;
     let screen = &connection.setup().roots[screen_index];
     let window = connection.generate_id()?;
@@ -47,7 +53,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         AtomEnum::STRING,
         b"computer-use-fixture\0computer-use-fixture",
     )?;
-    set_title(&connection, window, &format!("wrong; {network_state}"))?;
+    set_title(
+        &connection,
+        window,
+        &format!("wrong; {network_state}{artifact_state}"),
+    )?;
     connection.map_window(window)?;
     connection.flush()?;
 
@@ -77,6 +87,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     connection.free_gc(gc)?;
     connection.destroy_window(window)?;
     connection.flush()?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn prepare_artifact_symlink_fixture() -> Result<(), Box<dyn std::error::Error>> {
+    use std::{fs, os::unix::fs::symlink, path::Path};
+
+    let downloads = Path::new("/home/koolade/Downloads");
+    fs::create_dir_all(downloads)?;
+    fs::write(
+        downloads.join("koolade-bridge-sentinel.txt"),
+        b"original guest sentinel",
+    )?;
+    symlink(
+        downloads.join("koolade-bridge-sentinel.txt"),
+        downloads.join("koolade-bridge-link.txt"),
+    )?;
     Ok(())
 }
 
