@@ -373,3 +373,25 @@ The hosted real-KVM workflow remains unrun because no trusted
 does not turn a hosted skip into a pass. Guest/host escape, live transport
 file-transfer, metadata/private-network denial, repeated and concurrent
 resource pressure, guest OS restart, and multi-host cases remain incomplete.
+
+On 2026-11-16 at 20:50 EST (2026-11-17 01:50 UTC), two independent instances
+of the already-built real-KVM acceptance test ran concurrently on current
+`main` revision `632d11f3658f57d67335b497b30c2a43ccf64d01` in separate
+delegated user scopes. The seeded-defect and corrected-build guest journeys
+both passed, with separate QEMU processes, session roots, overlays, and
+cgroups. They completed in 160.16s and 160.98s; provisioning took 50.392s and
+50.366s, screen observation 155ms and 122ms, peak session memory
+1,192,120,320 and 1,188,564,992 bytes, and cleanup 8ms each. Both recovered a
+SIGKILLed controller (recovery 173ms and 110ms) and QEMU (8ms each), recorded
+the expected QA assertion, and observed the kernel deny an excess task
+(`pids.events max` 0→1; baseline task counts 71 and 46). Idle memory was
+1,072,754,688 and 1,058,058,240 bytes. Screenshot SHA-256
+values were the seeded-defect `d75a31b0b73225a1d14eabf418d84897f1f27e422d0437405cf61afeb5036a16`
+and corrected-build `69986be27f63ebf60374fa22d1a002bd55afd3ab4b5913c631d4d760dd688221`.
+This demonstrates two simultaneous sessions on one host; repeated-session,
+memory-pressure, larger concurrency, and exhaustion behavior remain untested.
+The first attempt launched two `cargo test` commands against the same target
+directory and failed when one acceptance process could not spawn its
+process-limit helper (`ENOENT`) during concurrent compilation. The passing
+rerun used the already-built test executable for both concurrent sessions, so
+Cargo did not replace that executable while its subprocesses were running.
