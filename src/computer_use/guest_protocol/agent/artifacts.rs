@@ -23,12 +23,33 @@ pub(super) struct PendingWrite {
     next_offset: u64,
 }
 
-pub(super) fn write_chunk(
+pub(super) fn write_chunk_or_reject(
     transfers: &mut HashMap<String, PendingWrite>,
     message: &GuestMessageV1,
 ) -> Result<GuestMessageV1, GuestProtocolErrorV1> {
     let root = downloads_root()?;
-    write_chunk_in(transfers, message, &root)
+    write_chunk_or_reject_in(transfers, message, &root)
+}
+
+fn write_chunk_or_reject_in(
+    transfers: &mut HashMap<String, PendingWrite>,
+    message: &GuestMessageV1,
+    root: &Path,
+) -> Result<GuestMessageV1, GuestProtocolErrorV1> {
+    match write_chunk_in(transfers, message, root) {
+        Ok(response) => Ok(response),
+        Err(GuestProtocolErrorV1::Io) => {
+            if let GuestMessageV1::ArtifactWriteChunk { transfer_id, .. } = message {
+                let _ = abort_write_in(transfers, transfer_id, root);
+                Ok(GuestMessageV1::ArtifactWriteRejected {
+                    transfer_id: transfer_id.clone(),
+                })
+            } else {
+                Err(GuestProtocolErrorV1::Malformed)
+            }
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn write_chunk_in(
@@ -381,6 +402,44 @@ mod tests {
             bytes: bytes.to_vec(),
         };
         assert!(write_chunk_in(&mut transfers, &overwrite, root.path()).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_write_returns_rejection_and_cleans_partial_transfer() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("sentinel.txt"), b"protected").unwrap();
+        symlink(
+            root.path().join("sentinel.txt"),
+            root.path().join("linked.txt"),
+        )
+        .unwrap();
+        let bytes = b"replacement";
+        let transfer_id = uuid::Uuid::new_v4().to_string();
+        let request = GuestMessageV1::ArtifactWriteChunk {
+            transfer_id: transfer_id.clone(),
+            file_name: "linked.txt".into(),
+            offset: 0,
+            total_bytes: bytes.len() as u64,
+            sha256: format!("sha256:{:x}", Sha256::digest(bytes)),
+            bytes: bytes.to_vec(),
+        };
+
+        let mut transfers = HashMap::new();
+        assert_eq!(
+            write_chunk_or_reject_in(&mut transfers, &request, root.path()).unwrap(),
+            GuestMessageV1::ArtifactWriteRejected {
+                transfer_id: transfer_id.clone(),
+            }
+        );
+        assert_eq!(
+            fs::read(root.path().join("sentinel.txt")).unwrap(),
+            b"protected"
+        );
+        assert!(transfers.is_empty());
+        assert!(!temp_path(root.path(), &transfer_id).exists());
     }
 
     #[test]

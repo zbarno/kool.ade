@@ -81,9 +81,9 @@ impl ComputerImageDownloadApprovalV1 for TestImageApproval {
 /// launches through the guest helper, and runs through the production QA
 /// scenario driver. The corrected fixture creates a sentinel and symlink in
 /// guest Downloads; an authenticated write to the symlink must not receive a
-/// successful artifact acknowledgement. The pinned companion closes the active
-/// channel on this filesystem error, so the live test records the sentinel
-/// before the probe while unit tests verify that the target remains unchanged.
+/// successful artifact acknowledgement. The companion returns a typed rejection
+/// while keeping the authenticated channel active, so the live test reads the
+/// sentinel both before and after the attack.
 /// A separate child test moves itself into the live VM
 /// cgroup, fills the configured task allowance with bounded worker threads,
 /// and confirms the kernel rejects additional tasks without leaving any behind;
@@ -776,9 +776,26 @@ fn run_real_kvm_acceptance(root: &Path, wait_for_controller_restart: bool) -> Re
                         .into(),
                 );
             }
+            if result != Err(crate::computer_use::guest_protocol::GuestProtocolErrorV1::Io) {
+                return Err(format!(
+                    "live symlink-target denial did not return a typed rejection: {:?}",
+                    result.unwrap_err()
+                ));
+            }
+            let after = channel
+                .read_artifact_chunk(
+                    &session,
+                    &uuid::Uuid::new_v4().to_string(),
+                    "koolade-bridge-sentinel.txt",
+                    0,
+                    unix_time_ms()?,
+                )
+                .map_err(|error| format!("read guest sentinel after rejected attack: {error:?}"))?;
+            if after.2 != sentinel.2 || after.1 != sentinel.1 || !after.3 {
+                return Err("live symlink-target write changed the protected sentinel".into());
+            }
             eprintln!(
-                "R1 live artifact symlink probe: no successful write acknowledgement ({:?}); pre-attack sentinel SHA-256 {}",
-                result.unwrap_err(),
+                "R1 live artifact symlink probe: typed denial preserved active channel and sentinel SHA-256 {}",
                 sentinel.1,
             );
         }

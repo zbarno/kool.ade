@@ -150,7 +150,7 @@ fn serve_connection(
             }
             let response = match &host.message {
                 GuestMessageV1::ArtifactWriteChunk { .. } => {
-                    artifacts::write_chunk(&mut replay.artifact_writes, &host.message)?
+                    artifacts::write_chunk_or_reject(&mut replay.artifact_writes, &host.message)?
                 }
                 GuestMessageV1::ArtifactReadChunk { .. } => artifacts::read_chunk(&host.message)?,
                 GuestMessageV1::ArtifactAbort { transfer_id } => {
