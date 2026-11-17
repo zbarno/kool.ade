@@ -97,7 +97,15 @@ impl MacOsVmProcessV1 {
     }
 
     pub(crate) fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
-        self.child.try_wait()
+        let status = self.child.try_wait()?;
+        if status.is_some()
+            && self
+                .process_group
+                .is_some_and(|process_group| !process_group_exists(process_group))
+        {
+            self.process_group = None;
+        }
+        Ok(status)
     }
 
     pub(crate) fn terminate(&mut self, timeout: Duration) -> io::Result<ExitStatus> {
@@ -107,9 +115,15 @@ impl MacOsVmProcessV1 {
                 "macOS QEMU stop timeout is outside its bound",
             ));
         }
-        let process_group = self
-            .process_group
-            .ok_or_else(|| io::Error::other("macOS QEMU process group is unavailable"))?;
+        let Some(process_group) = self.process_group else {
+            return self.child.wait();
+        };
+        if let Some(status) = self.child.try_wait()?
+            && !process_group_exists(process_group)
+        {
+            self.process_group = None;
+            return Ok(status);
+        }
         signal_group(process_group, libc::SIGTERM)?;
         let deadline = Instant::now() + timeout;
         loop {
@@ -207,5 +221,23 @@ mod tests {
         let pid = i32::try_from(process.id()).unwrap();
         drop(process);
         assert!(!process_group_exists(pid));
+    }
+
+    #[test]
+    fn terminate_after_observing_natural_exit_is_idempotent() {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "exit 7"]);
+        let mut process = MacOsVmProcessV1::spawn(command, 1 << 30, Duration::from_secs(60))
+            .expect("spawn bounded test child");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while process.try_wait().expect("observe test child").is_none() {
+            assert!(Instant::now() < deadline, "test child should exit promptly");
+            thread::sleep(Duration::from_millis(10));
+        }
+        let status = process
+            .terminate(Duration::from_secs(2))
+            .expect("terminate after natural exit");
+        assert_eq!(status.code(), Some(7));
+        assert_eq!(process.process_group, None);
     }
 }
