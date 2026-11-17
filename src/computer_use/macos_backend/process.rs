@@ -5,6 +5,9 @@
 //! gate. Darwin rejects RLIMIT_AS, so the caller must bound guest RAM in the
 //! QEMU launch configuration; this module cannot enforce a host memory cap.
 
+#[path = "process/qemu_launch.rs"]
+mod qemu_launch;
+
 use std::{
     io,
     os::unix::process::CommandExt,

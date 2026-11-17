@@ -76,6 +76,13 @@ unrestricted host directory mount.
   QEMU binary trust, VM resource enforcement, guest/display socket peer
   identity, cancellation, or recovery. No plan may be executed until those
   controls are implemented and reviewed; `release_enabled` remains false.
+- The bounded process primitive now accepts a fixed macOS plan only with an
+  absolute executable path whose basename matches the plan's selected
+  architecture. It passes the plan's argument vector directly to the child,
+  without shell parsing or ambient `PATH` lookup, and rejects guest RAM above
+  the planner's 16 GiB cap. The caller still has to resolve and verify an
+  app-trusted QEMU runtime; this does not establish binary provenance, a host
+  memory cap, or a usable `ComputerBackend` lifecycle.
 - Probe Intel versus Apple silicon host identity and HVF availability
   independently. Keep the backend unavailable if the result is unknown.
 - Use an architecture-matched signed guest image and the existing signed
