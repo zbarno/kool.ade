@@ -139,7 +139,7 @@ fn run_one_build(
         },
         QaScenarioStepV1 {
             driver_action: QaDriverActionV1::WaitForWindow,
-            expected_state: Some("computer qa destination".into()),
+            expected_state: Some("network probes blocked".into()),
             screenshot_checkpoint: false,
         },
         QaScenarioStepV1 {

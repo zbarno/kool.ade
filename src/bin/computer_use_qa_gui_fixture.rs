@@ -11,6 +11,11 @@ use x11rb::{
 #[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let defect_fixture = env!("CARGO_BIN_NAME").contains("defect");
+    let network_state = if network_probes_are_blocked() {
+        "network probes blocked"
+    } else {
+        "network probe unexpectedly connected"
+    };
     let (connection, screen_index) = x11rb::connect(None)?;
     let screen = &connection.setup().roots[screen_index];
     let window = connection.generate_id()?;
@@ -42,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         AtomEnum::STRING,
         b"computer-use-fixture\0computer-use-fixture",
     )?;
-    set_title(&connection, window, "wrong")?;
+    set_title(&connection, window, &format!("wrong; {network_state}"))?;
     connection.map_window(window)?;
     connection.flush()?;
 
@@ -73,6 +78,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     connection.destroy_window(window)?;
     connection.flush()?;
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn network_probes_are_blocked() -> bool {
+    use std::{
+        net::{SocketAddr, TcpStream},
+        time::Duration,
+    };
+
+    // The real-KVM acceptance additionally checks QMP's effective device graph
+    // and denies network hotplug. These bounded probes exercise guest TCP
+    // reachability for a public endpoint, the link-local metadata address, and
+    // QEMU's conventional user-mode gateway from the launched QA application.
+    ["1.1.1.1:443", "169.254.169.254:80", "10.0.2.2:22"]
+        .into_iter()
+        .all(|target| {
+            target.parse::<SocketAddr>().ok().is_some_and(|address| {
+                TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_err()
+            })
+        })
 }
 
 #[cfg(target_os = "linux")]
