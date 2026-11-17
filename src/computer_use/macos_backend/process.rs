@@ -23,6 +23,7 @@ type ResourceLimitKind = libc::__rlimit_resource_t;
 
 pub(crate) struct MacOsVmProcessV1 {
     child: Child,
+    process_group: Option<i32>,
 }
 
 impl MacOsVmProcessV1 {
@@ -82,7 +83,13 @@ impl MacOsVmProcessV1 {
                 set_limit(libc::RLIMIT_NOFILE, &files)
             });
         }
-        command.spawn().map(|child| Self { child })
+        command.spawn().map(|child| {
+            let process_group = i32::try_from(child.id()).ok();
+            Self {
+                child,
+                process_group,
+            }
+        })
     }
 
     pub(crate) fn id(&self) -> u32 {
@@ -100,19 +107,33 @@ impl MacOsVmProcessV1 {
                 "macOS QEMU stop timeout is outside its bound",
             ));
         }
-        let process_group = i32::try_from(self.child.id())
-            .map_err(|_| io::Error::other("macOS QEMU pid is out of range"))?;
+        let process_group = self
+            .process_group
+            .ok_or_else(|| io::Error::other("macOS QEMU process group is unavailable"))?;
         signal_group(process_group, libc::SIGTERM)?;
         let deadline = Instant::now() + timeout;
         loop {
             if let Some(status) = self.child.try_wait()?
                 && !process_group_exists(process_group)
             {
+                self.process_group = None;
                 return Ok(status);
             }
             if Instant::now() >= deadline {
-                signal_group(process_group, libc::SIGKILL)?;
-                return self.child.wait();
+                match signal_group(process_group, libc::SIGKILL) {
+                    Ok(()) => {}
+                    Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {}
+                    Err(error) => return Err(error),
+                }
+                let status = self.child.wait()?;
+                if process_group_exists(process_group) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "macOS QEMU process group survived forced termination",
+                    ));
+                }
+                self.process_group = None;
+                return Ok(status);
             }
             thread::sleep(Duration::from_millis(20));
         }
@@ -121,7 +142,7 @@ impl MacOsVmProcessV1 {
 
 impl Drop for MacOsVmProcessV1 {
     fn drop(&mut self) {
-        let Ok(process_group) = i32::try_from(self.child.id()) else {
+        let Some(process_group) = self.process_group.take() else {
             return;
         };
         // Closing the owning backend must not leave its QEMU process running.
@@ -173,6 +194,18 @@ mod tests {
             .terminate(Duration::from_secs(2))
             .expect("stop bounded process group");
         assert!(!status.success());
+        assert!(!process_group_exists(pid));
+        assert_eq!(process.process_group, None);
+    }
+
+    #[test]
+    fn drop_terminates_an_owned_process_group() {
+        let mut command = Command::new("/bin/sleep");
+        command.arg("60");
+        let process = MacOsVmProcessV1::spawn(command, 1 << 30, Duration::from_secs(60))
+            .expect("spawn bounded test child");
+        let pid = i32::try_from(process.id()).unwrap();
+        drop(process);
         assert!(!process_group_exists(pid));
     }
 }
