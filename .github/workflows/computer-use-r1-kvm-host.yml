@@ -55,15 +55,12 @@ jobs:
           GH_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          available="$(gh api --paginate --slurp "repos/$GH_REPOSITORY/actions/runners?per_page=100" \
-            | jq '[.[].runners[] | select(.status == "online") | select([.labels[].name] | contains(["self-hosted", "linux", "x64", "computer-use-kvm"]))] | length')"
-          if [[ "$available" -lt 1 ]]; then
-            echo "No online self-hosted Linux x64 runner labeled computer-use-kvm is registered." >&2
-            echo "Register a trusted, isolated runner before requiring R1 real-host preflight." >&2
-            exit 1
-          fi
-          echo "available=true" >> "$GITHUB_OUTPUT"
-          echo "Found $available online runner(s) with the complete trusted KVM label set." >> "$GITHUB_STEP_SUMMARY"
+          gh api --paginate --slurp "repos/$GH_REPOSITORY/actions/runners?per_page=100" \
+            > "$RUNNER_TEMP/computer-use-r1-runners.json"
+          python3 scripts/check-computer-use-r1-kvm-runners.py \
+            "$RUNNER_TEMP/computer-use-r1-runners.json" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-summary "$GITHUB_STEP_SUMMARY"
 
   host-preflight:
     name: Verify trusted KVM host prerequisites
