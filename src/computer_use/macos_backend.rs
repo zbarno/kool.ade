@@ -13,6 +13,9 @@ mod process;
 mod qemu_plan;
 #[allow(dead_code)] // Consumed by the macOS lifecycle adapter once it is wired in.
 pub(crate) mod session_plan;
+#[cfg(unix)]
+#[allow(dead_code)] // Kept disconnected until the macOS lifecycle/release gate is complete.
+pub(crate) mod storage;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MacOsHvfBlocker {
