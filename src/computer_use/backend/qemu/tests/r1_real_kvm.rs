@@ -194,11 +194,7 @@ fn run_real_kvm_acceptance(root: &Path, wait_for_controller_restart: bool) -> Re
     let probe = backend
         .probe()
         .map_err(|error| format!("host probe: {error:?}"))?;
-    if !probe.linux_host
-        || !probe.kvm_accessible
-        || !probe.qemu_available
-        || !probe.delegated_resource_controls
-    {
+    if !probe.supports_target(&session.target) {
         return Err("backend reported an incomplete host probe".into());
     }
 

@@ -31,8 +31,7 @@ impl LocalKvmComputerBackend {
         cgroups.probe()?;
         Ok(Probe {
             host_platform: Some(host_platform),
-            linux_host: true,
-            kvm_accessible,
+            hypervisor_accessible: kvm_accessible,
             qemu_available: true,
             delegated_resource_controls: true,
             max_vcpus: self.limits.max_vcpus,

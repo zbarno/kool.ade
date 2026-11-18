@@ -10,6 +10,9 @@ mod backend;
 mod guest_channel;
 mod platform;
 
+#[cfg(test)]
+mod probe_tests;
+
 pub use backend::ComputerBackend;
 #[cfg(any(target_os = "windows", test))]
 pub(crate) use guest_channel::GuestChannelIo;
@@ -20,9 +23,12 @@ pub use platform::ComputerHostPlatformV1;
 pub struct ComputerBackendProbeV1 {
     /// `None` means the adapter cannot authoritatively report a remote host.
     pub host_platform: Option<ComputerHostPlatformV1>,
-    pub linux_host: bool,
-    pub kvm_accessible: bool,
+    /// True only when the adapter has verified the target hypervisor on this
+    /// host (or the enrolled remote worker reported it available).
+    pub hypervisor_accessible: bool,
+    /// True only when the selected native QEMU executable is app-trusted.
     pub qemu_available: bool,
+    /// True only when the adapter has enforced the target's resource boundary.
     pub delegated_resource_controls: bool,
     pub max_vcpus: u16,
     pub max_memory_bytes: u64,
@@ -30,6 +36,73 @@ pub struct ComputerBackendProbeV1 {
     pub max_processes: u16,
     pub parallel_slots_per_machine: u16,
     pub boot_timeout: Duration,
+}
+
+impl ComputerBackendProbeV1 {
+    /// Validate that this probe can serve the requested backend target. The
+    /// Linux-only facts are required only for KVM; HVF and WHPX require a
+    /// matching native host identity and the same trusted-resource controls.
+    pub fn supports_target(&self, target: &crate::computer_use::ComputerTargetV1) -> bool {
+        use crate::computer_use::{ComputerHypervisorV1 as Hypervisor, ComputerTargetV1 as Target};
+
+        let host_matches = match target {
+            Target::LocalKvm { .. }
+            | Target::LocalVm {
+                hypervisor: Hypervisor::QemuKvm,
+                ..
+            } => self.host_platform == Some(ComputerHostPlatformV1::LinuxX86_64),
+            Target::LocalVm {
+                hypervisor: Hypervisor::QemuHvf,
+                ..
+            } => matches!(
+                self.host_platform,
+                Some(
+                    ComputerHostPlatformV1::MacOsIntel | ComputerHostPlatformV1::MacOsAppleSilicon
+                )
+            ),
+            Target::LocalVm {
+                hypervisor: Hypervisor::QemuWhpx,
+                ..
+            } => self.host_platform == Some(ComputerHostPlatformV1::WindowsX64),
+            Target::RemoteVmWorker { .. } => self.host_platform.is_none(),
+        };
+        host_matches
+            && self.hypervisor_accessible
+            && self.qemu_available
+            && self.delegated_resource_controls
+            && self.max_vcpus > 0
+            && self.max_memory_bytes > 0
+            && self.max_overlay_bytes > 0
+            && self.max_processes > 0
+            && self.parallel_slots_per_machine > 0
+            && !self.boot_timeout.is_zero()
+    }
+
+    /// Select the signed guest architecture from the verified host target.
+    /// Remote workers remain on x86_64 until their protocol advertises an
+    /// architecture explicitly.
+    pub fn guest_architecture_for(
+        &self,
+        target: &crate::computer_use::ComputerTargetV1,
+    ) -> Option<crate::computer_use::guest_image::ComputerGuestArchitectureV1> {
+        use crate::computer_use::guest_image::ComputerGuestArchitectureV1 as Architecture;
+        use crate::computer_use::{ComputerHypervisorV1 as Hypervisor, ComputerTargetV1 as Target};
+
+        if !self.supports_target(target) {
+            return None;
+        }
+        match target {
+            Target::LocalVm {
+                hypervisor: Hypervisor::QemuHvf,
+                ..
+            } if self.host_platform == Some(ComputerHostPlatformV1::MacOsAppleSilicon) => {
+                Some(Architecture::Aarch64)
+            }
+            Target::LocalKvm { .. } | Target::LocalVm { .. } | Target::RemoteVmWorker { .. } => {
+                Some(Architecture::X86_64)
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
