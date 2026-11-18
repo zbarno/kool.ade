@@ -26,6 +26,7 @@ pub(crate) enum WindowsBackendBlockerV1 {
 }
 
 impl WindowsBackendBlockerV1 {
+    #[allow(dead_code)] // Exposed once Windows startup diagnostics are routed to the controller.
     fn diagnostic(self) -> &'static str {
         match self {
             Self::HostPrerequisitesUnavailable => {
@@ -124,6 +125,7 @@ impl WindowsComputerBackend {
         blockers
     }
 
+    #[allow(dead_code)] // Exposed once Windows startup diagnostics are routed to the controller.
     pub(crate) fn diagnostics(&self) -> Vec<&'static str> {
         self.blockers()
             .into_iter()
