@@ -20,6 +20,7 @@ pub(crate) struct MacOsQemuLaunchPlanV1 {
     pub(crate) platform: ComputerHostPlatformV1,
     pub(crate) executable: &'static str,
     pub(crate) arguments: Vec<OsString>,
+    pub(crate) qmp_socket: std::path::PathBuf,
     /// Guest RAM encoded into `arguments`; process launch derives its resource
     /// bound from this value rather than accepting a second caller value.
     pub(crate) memory_bytes: u64,
@@ -169,6 +170,7 @@ pub(super) fn build_macos_qemu_launch_plan(
         platform,
         executable,
         arguments: raw.iter().map(OsString::from).collect(),
+        qmp_socket: qmp_socket.to_path_buf(),
         memory_bytes: memory_mib * MIB,
         disk_bytes,
         // Planning a launch never certifies the host or opens its support gate.

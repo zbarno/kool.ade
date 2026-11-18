@@ -23,7 +23,13 @@ impl MacOsVmProcessV1 {
         validate_qemu_launch_inputs(plan, executable, host_platform, readiness)?;
         let mut command = Command::new(executable);
         command.args(&plan.arguments);
-        Self::spawn(command, plan.memory_bytes, plan.disk_bytes, cpu_time_limit)
+        Self::spawn_with_qmp(
+            command,
+            plan.memory_bytes,
+            plan.disk_bytes,
+            cpu_time_limit,
+            plan.qmp_socket.clone(),
+        )
     }
 }
 
