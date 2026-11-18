@@ -1,10 +1,51 @@
 use super::{Check, VmFacts, facts};
 use crate::app::setup_attention::catalog::{Finding, FindingStatus};
 
+#[cfg(test)]
 pub(super) fn build_with_guest_image_state(
     facts: VmFacts,
     guest_image_state: crate::app::setup_attention::catalog::EvidenceState,
 ) -> Vec<Finding> {
+    build_for_host(
+        crate::app::setup_attention::catalog::HostKind::Linux,
+        facts,
+        guest_image_state,
+    )
+}
+
+pub(super) fn build_for_host(
+    host: crate::app::setup_attention::catalog::HostKind,
+    facts: VmFacts,
+    guest_image_state: crate::app::setup_attention::catalog::EvidenceState,
+) -> Vec<Finding> {
+    use crate::app::setup_attention::catalog::HostKind;
+
+    if host != HostKind::Linux {
+        let (explanation, next_step) = match host {
+            HostKind::MacOs => (
+                "macOS Computer Use is not enabled in this app build.",
+                "No hypervisor setting or separate QEMU installation is needed. Keep Computer Use off until an approved macOS backend is included in an app update.",
+            ),
+            HostKind::Windows => (
+                "Windows Computer Use is not enabled in this app build.",
+                "No hypervisor setting or separate QEMU installation is needed. Keep Computer Use off until an approved Windows backend is included in an app update.",
+            ),
+            HostKind::Unsupported => (
+                "Computer Use is not supported on this operating system.",
+                "Keep Computer Use off. No VM or virtualization settings were changed.",
+            ),
+            HostKind::Linux => unreachable!(),
+        };
+        return vec![task(
+            "setup:computer:host-backend",
+            "Check Computer Use host support",
+            explanation,
+            next_step,
+            FindingStatus::Unsupported,
+            vec![],
+        )];
+    }
+
     let mut result = Vec::new();
     let image_finding = match facts.architecture {
         Check::Ready(())

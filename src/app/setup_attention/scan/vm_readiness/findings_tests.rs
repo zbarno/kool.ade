@@ -28,6 +28,43 @@ fn image_facts(resources: super::super::resources::ResourceCapacity) -> VmFacts 
 }
 
 #[test]
+fn desktop_hosts_receive_precise_backend_status_without_linux_setup_instructions() {
+    for (host, label, hypervisor_guidance) in [
+        (
+            crate::app::setup_attention::catalog::HostKind::MacOs,
+            "macOS",
+            true,
+        ),
+        (
+            crate::app::setup_attention::catalog::HostKind::Windows,
+            "Windows",
+            true,
+        ),
+        (
+            crate::app::setup_attention::catalog::HostKind::Unsupported,
+            "not supported",
+            false,
+        ),
+    ] {
+        let cards = super::build_for_host(
+            host,
+            image_facts(Default::default()),
+            crate::app::setup_attention::catalog::EvidenceState::Unknown,
+        );
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].id, "setup:computer:host-backend");
+        assert_eq!(cards[0].status, FindingStatus::Unsupported);
+        assert!(cards[0].explanation.contains(label));
+        assert_eq!(
+            cards[0].next_step.contains("No hypervisor setting"),
+            hypervisor_guidance
+        );
+        assert!(!cards.iter().any(|card| card.id == "setup:computer:kvm"));
+        assert!(!cards.iter().any(|card| card.id == "setup:computer:qemu"));
+    }
+}
+
+#[test]
 fn storage_card_only_claims_measurements_that_are_available() {
     let storage = storage_explanation(Default::default());
     assert!(storage.contains("could not both be measured"));
