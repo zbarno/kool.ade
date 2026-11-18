@@ -11,6 +11,8 @@ use super::backend::ComputerHostPlatformV1;
 mod process;
 #[allow(dead_code)] // The launch plan remains disconnected while containment is incomplete.
 mod qemu_plan;
+#[allow(dead_code)] // Consumed by the macOS lifecycle adapter once it is wired in.
+pub(crate) mod session_plan;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MacOsHvfBlocker {

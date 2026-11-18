@@ -121,6 +121,34 @@ impl GuestImageOverlayV1 {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_launch_plan_test(
+        session_id: String,
+        image_digest: String,
+        manifest_digest: String,
+        signer_key_id: String,
+        path: PathBuf,
+        directory: PathBuf,
+        virtual_size_bytes: u64,
+    ) -> Self {
+        Self {
+            session_id,
+            path,
+            directory,
+            base_image_path: PathBuf::new(),
+            base_artifact_size_bytes: 0,
+            image_digest,
+            manifest_digest,
+            signer_key_id,
+            catalog_generation: 1,
+            virtual_size_bytes,
+            #[cfg(target_os = "linux")]
+            persistent_disk_key: None,
+            #[cfg(target_os = "linux")]
+            _profile_lock: None,
+        }
+    }
+
     #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn for_persistent_cleanup_test(
         path: PathBuf,

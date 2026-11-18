@@ -10,7 +10,7 @@ use std::{ffi::OsString, path::Path};
 use crate::computer_use::backend::ComputerHostPlatformV1;
 
 const MIB: u64 = 1024 * 1024;
-const MAX_VCPUS: u32 = 16;
+pub(super) const MAX_VCPUS: u32 = 16;
 const MIN_MEMORY_MIB: u64 = 512;
 const MAX_MEMORY_MIB: u64 = 16 * 1024;
 const MAX_UNIX_SOCKET_PATH_BYTES: usize = 103;
@@ -28,7 +28,7 @@ pub(crate) struct MacOsQemuLaunchPlanV1 {
     pub(crate) release_enabled: bool,
 }
 
-pub(crate) struct MacOsQemuLaunchRequestV1<'a> {
+pub(super) struct MacOsQemuLaunchRequestV1<'a> {
     pub(crate) vcpus: u32,
     pub(crate) memory_bytes: u64,
     pub(crate) disk_bytes: u64,
@@ -45,7 +45,7 @@ pub(crate) struct MacOsQemuLaunchRequestV1<'a> {
 /// source `disk_bytes` from the verified session policy and the overlay size
 /// from the verified image overlay. The plan cannot run while the release gate
 /// is closed or until the remaining macOS lifecycle controls are implemented.
-pub(crate) fn build_macos_qemu_launch_plan(
+pub(super) fn build_macos_qemu_launch_plan(
     platform: ComputerHostPlatformV1,
     request: MacOsQemuLaunchRequestV1<'_>,
 ) -> Option<MacOsQemuLaunchPlanV1> {
@@ -169,7 +169,7 @@ pub(crate) fn build_macos_qemu_launch_plan(
     })
 }
 
-fn safe_qemu_path(path: &Path) -> bool {
+pub(super) fn safe_qemu_path(path: &Path) -> bool {
     path.is_absolute()
         && path
             .as_os_str()
