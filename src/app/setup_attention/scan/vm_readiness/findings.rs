@@ -30,7 +30,11 @@ pub(super) fn build_for_host(
                 "Windows Computer Use is not enabled in this app build.",
                 "No hypervisor setting or separate QEMU installation is needed. Keep Computer Use off until an approved Windows backend is included in an app update.",
             ),
-            HostKind::Linux | HostKind::Unsupported => unreachable!(),
+            HostKind::Unsupported => (
+                "Computer Use is not supported on this operating system.",
+                "Keep Computer Use off. No VM or virtualization settings were changed.",
+            ),
+            HostKind::Linux => unreachable!(),
         };
         return vec![task(
             "setup:computer:host-backend",
