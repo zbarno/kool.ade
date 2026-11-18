@@ -3,7 +3,10 @@ use std::{env, io, io::Read, path::PathBuf};
 use anyhow::{Context, bail};
 use ed25519_dalek::SigningKey;
 
-use super::catalog::{SigningRequest, sign_candidate, verify_catalog_bundle, verify_release_image};
+use super::catalog::{
+    CandidateArchitecture, SigningRequest, sign_candidate, verify_catalog_bundle,
+    verify_release_assets,
+};
 
 pub(super) fn run() -> anyhow::Result<()> {
     let mut args = env::args().skip(1);
@@ -12,15 +15,18 @@ pub(super) fn run() -> anyhow::Result<()> {
             let [
                 candidate,
                 companion,
+                previous_release,
                 output,
                 previous_catalog,
                 previous_lock,
                 source_revision,
                 generation,
                 attestations,
+                architecture,
             ] = collect_args(args)?;
             let candidate = PathBuf::from(candidate);
             let companion = PathBuf::from(companion);
+            let previous_release = PathBuf::from(previous_release);
             let output = PathBuf::from(output);
             let previous_catalog = PathBuf::from(previous_catalog);
             let previous_lock = PathBuf::from(previous_lock);
@@ -34,6 +40,7 @@ pub(super) fn run() -> anyhow::Result<()> {
                 SigningRequest {
                     candidate_dir: &candidate,
                     companion_binary: &companion,
+                    previous_release_dir: &previous_release,
                     output_dir: &output,
                     previous_catalog_path: &previous_catalog,
                     previous_lock_path: &previous_lock,
@@ -42,6 +49,7 @@ pub(super) fn run() -> anyhow::Result<()> {
                         .parse::<u64>()
                         .context("catalog generation must be an integer")?,
                     attestations_path: &attestations,
+                    architecture: architecture.parse::<CandidateArchitecture>()?,
                 },
                 &signing_key,
             )?;
@@ -52,16 +60,15 @@ pub(super) fn run() -> anyhow::Result<()> {
             let lock = PathBuf::from(lock);
             verify_catalog_bundle(&catalog, &lock)?;
         }
-        Some("verify-image") => {
-            let [catalog, lock, image] = collect_args(args)?;
+        Some("verify-release-assets") => {
+            let [catalog, lock, assets] = collect_args(args)?;
             let catalog = PathBuf::from(catalog);
             let lock = PathBuf::from(lock);
-            let image = PathBuf::from(image);
-            verify_catalog_bundle(&catalog, &lock)?;
-            verify_release_image(&catalog, &lock, &image)?;
+            let assets = PathBuf::from(assets);
+            verify_release_assets(&catalog, &lock, &assets)?;
         }
         _ => bail!(
-            "usage: computer-use-image-promotion sign CANDIDATE_DIR COMPANION_BINARY OUTPUT_DIR PREVIOUS_CATALOG PREVIOUS_LOCK SOURCE_SHA GENERATION ATTESTATIONS_JSON (seed hex on stdin) | verify CATALOG LOCK | verify-image CATALOG LOCK IMAGE"
+            "usage: computer-use-image-promotion sign CANDIDATE_DIR COMPANION_BINARY PREVIOUS_RELEASE_DIR OUTPUT_DIR PREVIOUS_CATALOG PREVIOUS_LOCK SOURCE_SHA GENERATION ATTESTATIONS_JSON ARCHITECTURE (seed hex on stdin) | verify CATALOG LOCK | verify-release-assets CATALOG LOCK ASSETS_DIR"
         ),
     }
     Ok(())

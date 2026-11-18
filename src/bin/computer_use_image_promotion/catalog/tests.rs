@@ -9,72 +9,60 @@ use sha2::{Digest, Sha256};
 
 use super::{
     build_signed_bundle,
-    candidate::{self, Candidate},
+    candidate::{self, Candidate, CandidateArchitecture},
     files::sha256_bytes,
     previous::PreviousCatalog,
 };
 
-fn write_candidate(root: &Path, source: &str) -> (String, String, Vec<u8>) {
+pub(super) fn write_candidate(
+    root: &Path,
+    source: &str,
+    architecture: CandidateArchitecture,
+) -> (String, String, Vec<u8>) {
     fs::create_dir_all(root).unwrap();
+    let basename = architecture.image_basename();
+    let image_name = architecture.image_name();
     let image = b"synthetic-qcow2-candidate";
     let agent = b"synthetic-guest-agent";
     let sbom = br#"{"bomFormat":"CycloneDX","specVersion":"1.6","version":1}"#;
     let image_digest = format!("sha256:{:x}", Sha256::digest(image));
     let agent_digest = format!("{:x}", Sha256::digest(agent));
     let sbom_digest = format!("{:x}", Sha256::digest(sbom));
+    fs::write(root.join(image_name), image).unwrap();
     fs::write(
-        root.join(format!("{}.qcow2", candidate::IMAGE_BASENAME)),
-        image,
+        root.join(format!("{basename}.sha256")),
+        format!("{:}  {image_name}\n", &image_digest[7..]),
     )
     .unwrap();
     fs::write(
-        root.join(format!("{}.sha256", candidate::IMAGE_BASENAME)),
-        format!(
-            "{:}  {}.qcow2\n",
-            &image_digest[7..],
-            candidate::IMAGE_BASENAME
-        ),
+        root.join(format!("{basename}.agent.sha256")),
+        format!("{agent_digest}  {basename}.agent\n"),
     )
     .unwrap();
     fs::write(
-        root.join(format!("{}.agent.sha256", candidate::IMAGE_BASENAME)),
-        format!("{agent_digest}  {}.agent\n", candidate::IMAGE_BASENAME),
-    )
-    .unwrap();
-    fs::write(
-        root.join(format!("{}.qemu-info.json", candidate::IMAGE_BASENAME)),
+        root.join(format!("{basename}.qemu-info.json")),
         r#"{"virtual-size":2147483648}"#,
     )
     .unwrap();
     let recipe = b"synthetic recipe components";
     fs::write(
-        root.join(format!(
-            "{}.recipe-components.sha256",
-            candidate::IMAGE_BASENAME
-        )),
+        root.join(format!("{}.recipe-components.sha256", basename)),
         recipe,
     )
     .unwrap();
     fs::write(
-        root.join(format!("{}.recipe.sha256", candidate::IMAGE_BASENAME)),
+        root.join(format!("{basename}.recipe.sha256")),
         format!("{}\n", sha256_bytes(recipe)),
     )
     .unwrap();
+    fs::write(root.join(format!("{basename}.sbom.cdx.json")), sbom).unwrap();
     fs::write(
-        root.join(format!("{}.sbom.cdx.json", candidate::IMAGE_BASENAME)),
-        sbom,
+        root.join(format!("{basename}.sbom.sha256")),
+        format!("{sbom_digest}  {basename}.sbom.cdx.json\n"),
     )
     .unwrap();
     fs::write(
-        root.join(format!("{}.sbom.sha256", candidate::IMAGE_BASENAME)),
-        format!(
-            "{sbom_digest}  {}.sbom.cdx.json\n",
-            candidate::IMAGE_BASENAME
-        ),
-    )
-    .unwrap();
-    fs::write(
-        root.join(format!("{}.source-revision", candidate::IMAGE_BASENAME)),
+        root.join(format!("{basename}.source-revision")),
         format!("{source}\n"),
     )
     .unwrap();
@@ -85,7 +73,7 @@ fn write_candidate(root: &Path, source: &str) -> (String, String, Vec<u8>) {
     )
 }
 
-fn synthetic_trust(signer: &SigningKey) -> GuestImageManifestTrustV1 {
+pub(super) fn synthetic_trust(signer: &SigningKey) -> GuestImageManifestTrustV1 {
     GuestImageManifestTrustV1::from_application_pinned_keys(
         [(super::SIGNER_KEY_ID.into(), signer.verifying_key())],
         1,
@@ -101,13 +89,20 @@ fn signing_binds_candidate_sidecars_companion_attestations_and_lock() {
     let temp = tempfile::tempdir().unwrap();
     let source = "a".repeat(40);
     let candidate_root = temp.path().join("candidate");
-    let (image_digest, agent_digest, agent) = write_candidate(&candidate_root, &source);
+    let (image_digest, agent_digest, agent) =
+        write_candidate(&candidate_root, &source, CandidateArchitecture::X86_64);
     let companion = temp.path().join("agent");
     fs::write(&companion, agent).unwrap();
     let attestations = temp.path().join("attestations.json");
     fs::write(&attestations, "[{},{}]").unwrap();
-    let candidate =
-        candidate::read_candidate(&candidate_root, &companion, &source, &attestations).unwrap();
+    let candidate = candidate::read_candidate(
+        &candidate_root,
+        &companion,
+        &source,
+        &attestations,
+        CandidateArchitecture::X86_64,
+    )
+    .unwrap();
     let signer = SigningKey::from_bytes(&[71; 32]);
     let trust = synthetic_trust(&signer);
     let (manifest, lock) = build_signed_bundle(
@@ -210,22 +205,36 @@ fn promotion_rejects_a_changed_companion_sidecar() {
     let temp = tempfile::tempdir().unwrap();
     let source = "a".repeat(40);
     let candidate_root = temp.path().join("candidate");
-    let (_, _, agent) = write_candidate(&candidate_root, &source);
+    let (_, _, agent) = write_candidate(&candidate_root, &source, CandidateArchitecture::X86_64);
     let companion = temp.path().join("agent");
     fs::write(&companion, agent).unwrap();
     fs::write(
-        candidate_root.join(format!("{}.agent.sha256", candidate::IMAGE_BASENAME)),
-        format!("{}  {}.agent\n", "0".repeat(64), candidate::IMAGE_BASENAME),
+        candidate_root.join(format!(
+            "{}.agent.sha256",
+            CandidateArchitecture::X86_64.image_basename()
+        )),
+        format!(
+            "{}  {}.agent\n",
+            "0".repeat(64),
+            CandidateArchitecture::X86_64.image_basename()
+        ),
     )
     .unwrap();
     let attestations = temp.path().join("attestations.json");
     fs::write(&attestations, "[{},{}]").unwrap();
     assert!(
-        candidate::read_candidate(&candidate_root, &companion, &source, &attestations).is_err()
+        candidate::read_candidate(
+            &candidate_root,
+            &companion,
+            &source,
+            &attestations,
+            CandidateArchitecture::X86_64,
+        )
+        .is_err()
     );
 }
 
-fn dummy_candidate() -> Candidate {
+pub(super) fn dummy_candidate() -> Candidate {
     let digest = format!("sha256:{}", "c".repeat(64));
     Candidate {
         image: GuestImageEntryV1 {
@@ -233,7 +242,7 @@ fn dummy_candidate() -> Candidate {
             image_digest: digest.clone(),
             image_size_bytes: 2 * 1024 * 1024 * 1024,
             artifact_size_bytes: 8,
-            artifact_name: candidate::IMAGE_NAME.into(),
+            artifact_name: CandidateArchitecture::X86_64.image_name().into(),
             guest_release: "debian-bookworm-test".into(),
             source_revision: "b".repeat(40),
             build_recipe_sha256: digest.clone(),
