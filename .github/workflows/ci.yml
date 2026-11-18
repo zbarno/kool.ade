@@ -646,12 +646,20 @@ jobs:
         env:
           MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
         run: |
+          $package = & msys2 -c 'pacman -Q mingw-w64-ucrt-x86_64-qemu'
+          if ($LASTEXITCODE -ne 0 -or ($package -join "`n").Trim() -ne 'mingw-w64-ucrt-x86_64-qemu 11.1.3-2') {
+            throw "Unexpected signed MSYS2 QEMU package: $package"
+          }
           $qemu = Join-Path $env:MSYS2_LOCATION 'ucrt64\bin\qemu-system-x86_64.exe'
           if (-not (Test-Path -LiteralPath $qemu -PathType Leaf)) {
             throw "Signed MSYS2 package did not install QEMU at $qemu"
           }
-          & $qemu --version
+          $version = & $qemu --version | Select-Object -First 1
           if ($LASTEXITCODE -ne 0) { throw 'QEMU version probe failed' }
+          if ($version -notmatch '^QEMU emulator version 11\.1\.3(?:\s|$)') {
+            throw "Unexpected QEMU executable version: $version"
+          }
+          $version
           "KOOLADE_TEST_WINDOWS_QEMU=$qemu" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Verify AF_UNIX storage leaf validation
         run: >-
