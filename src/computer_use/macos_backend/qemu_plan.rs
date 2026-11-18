@@ -1,8 +1,9 @@
 //! Fixed QEMU/HVF launch planning for native-architecture macOS guests.
 //!
 //! This module only produces a deterministic command plan. It deliberately
-//! does not spawn QEMU: per-session resource enforcement, process containment,
-//! private transport ownership, and the host release gate are not implemented.
+//! does not spawn QEMU: trusted executable verification, the complete session
+//! lifecycle, private transport ownership, and the host release gate remain
+//! incomplete.
 
 use std::{ffi::OsString, path::Path};
 
@@ -21,12 +22,17 @@ pub(crate) struct MacOsQemuLaunchPlanV1 {
     /// Guest RAM encoded into `arguments`; process launch derives its resource
     /// bound from this value rather than accepting a second caller value.
     pub(crate) memory_bytes: u64,
+    /// Maximum session-authorized qcow2 overlay size. This becomes the QEMU
+    /// process RLIMIT_FSIZE and caps individual child-created files.
+    pub(crate) disk_bytes: u64,
     pub(crate) release_enabled: bool,
 }
 
 pub(crate) struct MacOsQemuLaunchRequestV1<'a> {
     pub(crate) vcpus: u32,
     pub(crate) memory_bytes: u64,
+    pub(crate) disk_bytes: u64,
+    pub(crate) overlay_virtual_size_bytes: u64,
     pub(crate) overlay: &'a Path,
     pub(crate) control_socket: &'a Path,
     pub(crate) display_socket: &'a Path,
@@ -35,8 +41,10 @@ pub(crate) struct MacOsQemuLaunchRequestV1<'a> {
 }
 
 /// Build an architecture-specific, offline QEMU/HVF command plan from
-/// controller-owned resource values and app-owned paths. The plan cannot be
-/// executed until a separately reviewed macOS containment adapter exists.
+/// controller-owned resource values and app-owned paths. The caller must
+/// source `disk_bytes` from the verified session policy and the overlay size
+/// from the verified image overlay. The plan cannot run while the release gate
+/// is closed or until the remaining macOS lifecycle controls are implemented.
 pub(crate) fn build_macos_qemu_launch_plan(
     platform: ComputerHostPlatformV1,
     request: MacOsQemuLaunchRequestV1<'_>,
@@ -44,6 +52,8 @@ pub(crate) fn build_macos_qemu_launch_plan(
     let MacOsQemuLaunchRequestV1 {
         vcpus,
         memory_bytes,
+        disk_bytes,
+        overlay_virtual_size_bytes,
         overlay,
         control_socket,
         display_socket,
@@ -68,6 +78,12 @@ pub(crate) fn build_macos_qemu_launch_plan(
     // Round down so QEMU never receives a memory value above the signed budget.
     let memory_mib = memory_bytes / MIB;
     if !(MIN_MEMORY_MIB..=MAX_MEMORY_MIB).contains(&memory_mib) {
+        return None;
+    }
+    if !(256 * MIB..=512 * 1024 * MIB).contains(&disk_bytes)
+        || overlay_virtual_size_bytes == 0
+        || overlay_virtual_size_bytes > disk_bytes
+    {
         return None;
     }
     for path in [overlay, boot_config, app_helper_config] {
@@ -147,6 +163,7 @@ pub(crate) fn build_macos_qemu_launch_plan(
         executable,
         arguments: raw.iter().map(OsString::from).collect(),
         memory_bytes: memory_mib * MIB,
+        disk_bytes,
         // Planning a launch never certifies the host or opens its support gate.
         release_enabled: false,
     })
@@ -177,6 +194,8 @@ mod tests {
             MacOsQemuLaunchRequestV1 {
                 vcpus: 4,
                 memory_bytes: 4 * MIB * 1024,
+                disk_bytes: 2 * 1024 * MIB,
+                overlay_virtual_size_bytes: 2 * 1024 * MIB,
                 overlay: Path::new("/private/session/disk.qcow2"),
                 control_socket: Path::new("/private/session/control.sock"),
                 display_socket: Path::new("/private/session/display.sock"),
@@ -185,6 +204,26 @@ mod tests {
             },
         )
         .expect("valid native plan")
+    }
+
+    fn plan_for_disk_budget(
+        disk_bytes: u64,
+        overlay_virtual_size_bytes: u64,
+    ) -> Option<MacOsQemuLaunchPlanV1> {
+        build_macos_qemu_launch_plan(
+            ComputerHostPlatformV1::MacOsIntel,
+            MacOsQemuLaunchRequestV1 {
+                vcpus: 2,
+                memory_bytes: 2 * MIB * 1024,
+                disk_bytes,
+                overlay_virtual_size_bytes,
+                overlay: Path::new("/private/session/disk.qcow2"),
+                control_socket: Path::new("/private/session/control.sock"),
+                display_socket: Path::new("/private/session/display.sock"),
+                boot_config: Path::new("/private/session/boot.json"),
+                app_helper_config: Path::new("/private/session/helper.json"),
+            },
+        )
     }
 
     #[test]
@@ -228,6 +267,8 @@ mod tests {
                 MacOsQemuLaunchRequestV1 {
                     vcpus,
                     memory_bytes: memory,
+                    disk_bytes: 2 * 1024 * MIB,
+                    overlay_virtual_size_bytes: 2 * 1024 * MIB,
                     overlay,
                     control_socket: socket,
                     display_socket: Path::new("/private/session/display.sock"),
@@ -242,6 +283,8 @@ mod tests {
             MacOsQemuLaunchRequestV1 {
                 vcpus: 2,
                 memory_bytes: MIN_MEMORY_MIB * MIB + 1,
+                disk_bytes: 2 * 1024 * MIB,
+                overlay_virtual_size_bytes: 2 * 1024 * MIB,
                 overlay: Path::new("/disk"),
                 control_socket: Path::new("/sock"),
                 display_socket: Path::new("/display"),
@@ -281,6 +324,8 @@ mod tests {
                 MacOsQemuLaunchRequestV1 {
                     vcpus: 2,
                     memory_bytes: 4 * MIB * 1024,
+                    disk_bytes: 2 * 1024 * MIB,
+                    overlay_virtual_size_bytes: 2 * 1024 * MIB,
                     overlay: Path::new("/disk"),
                     control_socket: Path::new("/sock"),
                     display_socket: Path::new("/display"),
@@ -290,5 +335,14 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn launch_plan_binds_overlay_size_to_the_signed_disk_budget() {
+        const GIB: u64 = 1024 * MIB;
+        assert!(plan_for_disk_budget(0, 0).is_none());
+        assert!(plan_for_disk_budget(2 * GIB, 4 * GIB).is_none());
+        let plan = plan_for_disk_budget(3 * GIB, 2 * GIB).expect("bounded disk plan");
+        assert_eq!(plan.disk_bytes, 3 * GIB);
     }
 }

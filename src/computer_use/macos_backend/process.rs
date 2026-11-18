@@ -1,6 +1,6 @@
 //! Bounded macOS QEMU child lifecycle primitives.
 //!
-//! Process groups and CPU/file rlimits bound a trusted QEMU process; they are
+//! Process groups and CPU/file-size rlimits bound a trusted QEMU process; they are
 //! not a sandbox and do not certify guest/host isolation or open the release
 //! gate. Darwin rejects RLIMIT_AS, so the caller must bound guest RAM in the
 //! QEMU launch configuration; this module cannot enforce a host memory cap.
@@ -31,14 +31,17 @@ pub(crate) struct MacOsVmProcessV1 {
 
 impl MacOsVmProcessV1 {
     /// Start an absolute-path, already app-trusted QEMU executable in a
-    /// private process group with per-process memory/CPU limits.
+    /// private process group with a guest-RAM ceiling, CPU-time limit, and
+    /// per-process file-size limit.
     pub(crate) fn spawn(
         mut command: Command,
         memory_bytes: u64,
+        max_file_bytes: u64,
         cpu_time_limit: Duration,
     ) -> io::Result<Self> {
         if !std::path::Path::new(command.get_program()).is_absolute()
             || memory_bytes == 0
+            || max_file_bytes == 0
             || cpu_time_limit.is_zero()
         {
             return Err(io::Error::new(
@@ -58,6 +61,10 @@ impl MacOsVmProcessV1 {
             rlim_cur: cpu_seconds,
             rlim_max: cpu_seconds,
         };
+        let file_size_limit = libc::rlimit {
+            rlim_cur: max_file_bytes as libc::rlim_t,
+            rlim_max: max_file_bytes as libc::rlim_t,
+        };
         let no_core = libc::rlimit {
             rlim_cur: 0,
             rlim_max: 0,
@@ -72,12 +79,14 @@ impl MacOsVmProcessV1 {
         // captured POD limits; it runs between fork and exec.
         unsafe {
             command.pre_exec(move || {
+                libc::umask(0o077);
                 if libc::setpgid(0, 0) != 0 {
                     return Err(io::Error::last_os_error());
                 }
                 #[cfg(not(target_os = "macos"))]
                 set_limit(libc::RLIMIT_AS, &memory_limit)?;
                 set_limit(libc::RLIMIT_CPU, &cpu_limit)?;
+                set_limit(libc::RLIMIT_FSIZE, &file_size_limit)?;
                 set_limit(libc::RLIMIT_CORE, &no_core)?;
                 let files = libc::rlimit {
                     rlim_cur: MAX_OPEN_FILES,
@@ -195,17 +204,47 @@ mod tests {
     #[test]
     fn rejects_unbounded_commands_before_spawn() {
         let mut command = Command::new("/bin/sleep");
-        assert!(MacOsVmProcessV1::spawn(command, 0, Duration::from_secs(1)).is_err());
+        assert!(MacOsVmProcessV1::spawn(command, 0, 1, Duration::from_secs(1)).is_err());
         command = Command::new("sleep");
-        assert!(MacOsVmProcessV1::spawn(command, 1 << 30, Duration::from_secs(1)).is_err());
+        assert!(MacOsVmProcessV1::spawn(command, 1 << 30, 1, Duration::from_secs(1)).is_err());
+    }
+
+    /// Production boundary: the operating system enforces the inherited
+    /// RLIMIT_FSIZE on the child and its descendants. A planner unit test
+    /// cannot prove that the kernel rejects an oversized file write.
+    /// Dependency/setup cost: local POSIX `/bin/dd`, under one second.
+    #[test]
+    fn qemu_file_size_limit_caps_child_output_at_the_session_disk_budget() {
+        let directory = tempfile::tempdir().expect("temporary output directory");
+        let output = directory.path().join("bounded-output.bin");
+        let output_argument = format!("of={}", output.display());
+        let mut command = Command::new("/bin/dd");
+        command.args(["if=/dev/zero", &output_argument, "bs=8192", "count=1"]);
+        let mut process = MacOsVmProcessV1::spawn(command, 1 << 30, 4096, Duration::from_secs(30))
+            .expect("spawn child with a small file-size bound");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while process.try_wait().expect("poll bounded child").is_none() {
+            assert!(
+                Instant::now() < deadline,
+                "child should hit its file-size limit"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            std::fs::metadata(output)
+                .expect("bounded output exists")
+                .len()
+                <= 4096
+        );
     }
 
     #[test]
     fn terminates_the_owned_process_group_within_the_requested_bound() {
         let mut command = Command::new("/bin/sleep");
         command.arg("60");
-        let mut process = MacOsVmProcessV1::spawn(command, 1 << 30, Duration::from_secs(60))
-            .expect("spawn bounded test child");
+        let mut process =
+            MacOsVmProcessV1::spawn(command, 1 << 30, 1 << 30, Duration::from_secs(60))
+                .expect("spawn bounded test child");
         let pid = i32::try_from(process.id()).unwrap();
         let status = process
             .terminate(Duration::from_secs(2))
@@ -219,7 +258,7 @@ mod tests {
     fn drop_terminates_an_owned_process_group() {
         let mut command = Command::new("/bin/sleep");
         command.arg("60");
-        let process = MacOsVmProcessV1::spawn(command, 1 << 30, Duration::from_secs(60))
+        let process = MacOsVmProcessV1::spawn(command, 1 << 30, 1 << 30, Duration::from_secs(60))
             .expect("spawn bounded test child");
         let pid = i32::try_from(process.id()).unwrap();
         drop(process);
@@ -230,8 +269,9 @@ mod tests {
     fn terminate_after_observing_natural_exit_is_idempotent() {
         let mut command = Command::new("/bin/sh");
         command.args(["-c", "exit 7"]);
-        let mut process = MacOsVmProcessV1::spawn(command, 1 << 30, Duration::from_secs(60))
-            .expect("spawn bounded test child");
+        let mut process =
+            MacOsVmProcessV1::spawn(command, 1 << 30, 1 << 30, Duration::from_secs(60))
+                .expect("spawn bounded test child");
         let deadline = Instant::now() + Duration::from_secs(2);
         while process.try_wait().expect("observe test child").is_none() {
             assert!(Instant::now() < deadline, "test child should exit promptly");
