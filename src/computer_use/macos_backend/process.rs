@@ -7,10 +7,13 @@
 
 #[path = "process/qemu_launch.rs"]
 mod qemu_launch;
+#[path = "process/qmp.rs"]
+mod qmp;
 
 use std::{
     io,
     os::unix::process::CommandExt,
+    path::PathBuf,
     process::{Child, Command, ExitStatus},
     thread,
     time::{Duration, Instant},
@@ -27,6 +30,7 @@ type ResourceLimitKind = libc::__rlimit_resource_t;
 pub(crate) struct MacOsVmProcessV1 {
     child: Child,
     process_group: Option<i32>,
+    qmp_socket: Option<PathBuf>,
 }
 
 impl MacOsVmProcessV1 {
@@ -100,8 +104,21 @@ impl MacOsVmProcessV1 {
             Self {
                 child,
                 process_group,
+                qmp_socket: None,
             }
         })
+    }
+
+    fn spawn_with_qmp(
+        command: Command,
+        memory_bytes: u64,
+        max_file_bytes: u64,
+        cpu_time_limit: Duration,
+        qmp_socket: PathBuf,
+    ) -> io::Result<Self> {
+        let mut process = Self::spawn(command, memory_bytes, max_file_bytes, cpu_time_limit)?;
+        process.qmp_socket = Some(qmp_socket);
+        Ok(process)
     }
 
     pub(crate) fn id(&self) -> u32 {
@@ -118,6 +135,28 @@ impl MacOsVmProcessV1 {
             self.process_group = None;
         }
         Ok(status)
+    }
+
+    pub(crate) fn pause_guest(&self) -> io::Result<()> {
+        self.run_qmp_control(qmp::MacOsQmpControlCommandV1::Pause)
+    }
+
+    pub(crate) fn resume_guest(&self) -> io::Result<()> {
+        self.run_qmp_control(qmp::MacOsQmpControlCommandV1::Resume)
+    }
+
+    pub(crate) fn request_guest_shutdown(&self) -> io::Result<()> {
+        self.run_qmp_control(qmp::MacOsQmpControlCommandV1::Shutdown)
+    }
+
+    fn run_qmp_control(&self, command: qmp::MacOsQmpControlCommandV1) -> io::Result<()> {
+        let socket = self.qmp_socket.as_deref().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotConnected,
+                "macOS QEMU process has no owned QMP socket",
+            )
+        })?;
+        qmp::execute_control_command(socket, command, Duration::from_secs(5))
     }
 
     pub(crate) fn terminate(&mut self, timeout: Duration) -> io::Result<ExitStatus> {
@@ -236,6 +275,63 @@ mod tests {
                 .len()
                 <= 4096
         );
+    }
+
+    #[test]
+    fn owned_process_routes_guest_controls_only_to_its_qmp_socket() {
+        use std::{
+            io::{BufRead, BufReader, Write},
+            os::unix::net::UnixListener,
+        };
+
+        let directory = tempfile::tempdir().expect("private QMP fixture directory");
+        let socket = directory.path().join("qmp.sock");
+        let listener = UnixListener::bind(&socket).expect("bind QMP fixture socket");
+        let server = thread::spawn(move || {
+            for expected in ["stop", "cont", "system_powerdown"] {
+                let (stream, _) = listener.accept().expect("accept QMP control connection");
+                let mut reader = BufReader::new(stream);
+                reader
+                    .get_mut()
+                    .write_all(b"{\"QMP\":{\"version\":{}}}\r\n")
+                    .expect("write QMP greeting");
+                let mut line = String::new();
+                reader.read_line(&mut line).expect("read QMP capabilities");
+                assert!(line.contains("qmp_capabilities"));
+                reader
+                    .get_mut()
+                    .write_all(b"{\"return\":{},\"id\":1}\r\n")
+                    .expect("write QMP capabilities response");
+                line.clear();
+                reader
+                    .read_line(&mut line)
+                    .expect("read QMP control command");
+                let request: serde_json::Value =
+                    serde_json::from_str(&line).expect("parse QMP control command");
+                assert_eq!(request["execute"], expected);
+                writeln!(reader.get_mut(), "{{\"return\":{{}},\"id\":2}}")
+                    .expect("write QMP control response");
+            }
+        });
+        let command = Command::new("/bin/sleep");
+        let mut process = MacOsVmProcessV1::spawn_with_qmp(
+            command,
+            1 << 30,
+            1 << 30,
+            Duration::from_secs(30),
+            socket,
+        )
+        .expect("spawn process with its QMP endpoint");
+
+        process.pause_guest().expect("pause through owned QMP");
+        process.resume_guest().expect("resume through owned QMP");
+        process
+            .request_guest_shutdown()
+            .expect("request shutdown through owned QMP");
+        server.join().expect("QMP server completed");
+        process
+            .terminate(Duration::from_secs(2))
+            .expect("terminate the test process group");
     }
 
     #[test]
