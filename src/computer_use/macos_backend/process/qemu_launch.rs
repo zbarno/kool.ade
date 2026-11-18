@@ -2,8 +2,8 @@ use std::{io, path::Path, process::Command, time::Duration};
 
 use super::MacOsVmProcessV1;
 use crate::computer_use::{
-    backend::ComputerHostPlatformV1, macos_backend::MacOsHvfReadiness,
-    macos_backend::probe_macos_hvf,
+    backend::ComputerHostPlatformV1,
+    macos_backend::{MacOsHvfReadiness, MacOsTrustedQemuRuntimeV1, probe_macos_hvf},
 };
 
 const MAX_GUEST_MEMORY_BYTES: u64 = 16 * 1024 * 1024 * 1024;
@@ -15,9 +15,10 @@ impl MacOsVmProcessV1 {
     /// cross-architecture binary substitution.
     pub(crate) fn spawn_qemu(
         plan: &super::super::qemu_plan::MacOsQemuLaunchPlanV1,
-        executable: &Path,
+        runtime: &MacOsTrustedQemuRuntimeV1,
         cpu_time_limit: Duration,
     ) -> io::Result<Self> {
+        let executable = runtime.path_for_plan(plan)?;
         let host_platform = ComputerHostPlatformV1::current();
         let readiness = probe_macos_hvf();
         validate_qemu_launch_inputs(plan, executable, host_platform, readiness)?;
@@ -62,6 +63,7 @@ mod tests {
 
     use crate::computer_use::{
         backend::ComputerHostPlatformV1,
+        macos_backend::MacOsTrustedQemuRuntimeV1,
         macos_backend::qemu_plan::{MacOsQemuLaunchRequestV1, build_macos_qemu_launch_plan},
     };
 
@@ -94,45 +96,27 @@ mod tests {
         .expect("valid native macOS plan");
 
         let executable_name = plan.executable;
-        assert!(
-            MacOsVmProcessV1::spawn_qemu(
-                &plan,
-                Path::new(executable_name),
-                Duration::from_secs(60),
-            )
-            .is_err()
-        );
-        let gated = match MacOsVmProcessV1::spawn_qemu(
-            &plan,
-            &Path::new("/app/bin").join(executable_name),
-            Duration::from_secs(60),
-        ) {
+        let bundle = tempfile::tempdir().expect("bundled QEMU fixture");
+        let runtime_root = bundle.path().join("Contents/Resources/qemu");
+        std::fs::create_dir_all(&runtime_root).expect("create QEMU bundle directory");
+        let executable = runtime_root.join(executable_name);
+        std::fs::write(&executable, b"QEMU fixture").expect("write QEMU fixture");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
+                .expect("make QEMU fixture executable");
+        }
+        let runtime = MacOsTrustedQemuRuntimeV1::fixture(executable, platform);
+        let gated = match MacOsVmProcessV1::spawn_qemu(&plan, &runtime, Duration::from_secs(60)) {
             Err(error) => error,
             Ok(_) => panic!("a closed release gate must prevent process creation"),
         };
         assert_eq!(gated.kind(), std::io::ErrorKind::InvalidInput);
-        assert!(
-            MacOsVmProcessV1::spawn_qemu(
-                &plan,
-                &Path::new("/app/bin").join(if executable_name == "qemu-system-aarch64" {
-                    "qemu-system-x86_64"
-                } else {
-                    "qemu-system-aarch64"
-                }),
-                Duration::from_secs(60),
-            )
-            .is_err()
-        );
-
         let mut over_budget = plan;
         over_budget.memory_bytes = MAX_GUEST_MEMORY_BYTES + 1;
         assert!(
-            MacOsVmProcessV1::spawn_qemu(
-                &over_budget,
-                &Path::new("/app/bin").join(executable_name),
-                Duration::from_secs(60),
-            )
-            .is_err()
+            MacOsVmProcessV1::spawn_qemu(&over_budget, &runtime, Duration::from_secs(60),).is_err()
         );
     }
 
