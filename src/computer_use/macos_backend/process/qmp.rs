@@ -2,7 +2,7 @@ use std::{
     io::{self, BufRead, BufReader, Read, Write},
     os::unix::net::UnixStream,
     path::Path,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const MAX_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
@@ -38,34 +38,40 @@ pub(super) fn execute_control_command(
         ));
     }
     let stream = UnixStream::connect(socket_path)?;
-    stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
-    execute_control_command_on_stream(stream, command)
+    execute_control_command_on_stream(stream, command, timeout)
 }
 
 fn execute_control_command_on_stream(
     stream: UnixStream,
     command: MacOsQmpControlCommandV1,
+    timeout: Duration,
 ) -> io::Result<()> {
+    let deadline = Instant::now() + timeout;
     let mut reader = BufReader::new(stream);
-    let greeting = read_json_line(&mut reader)?;
+    let greeting = read_json_line(&mut reader, deadline)?;
     if greeting.get("QMP").is_none() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "QEMU did not provide a QMP greeting",
         ));
     }
-    execute(&mut reader, "qmp_capabilities", 1)?;
-    execute(&mut reader, command.qmp_name(), 2)?;
+    execute(&mut reader, "qmp_capabilities", 1, deadline)?;
+    execute(&mut reader, command.qmp_name(), 2, deadline)?;
     Ok(())
 }
 
-fn execute(reader: &mut BufReader<UnixStream>, command: &str, id: u8) -> io::Result<()> {
+fn execute(
+    reader: &mut BufReader<UnixStream>,
+    command: &str,
+    id: u8,
+    deadline: Instant,
+) -> io::Result<()> {
     let mut request = serde_json::json!({ "execute": command, "id": id }).to_string();
     request.push_str("\r\n");
     reader.get_mut().write_all(request.as_bytes())?;
     for _ in 0..MAX_UNMATCHED_QMP_MESSAGES {
-        let response = read_json_line(reader)?;
+        let response = read_json_line(reader, deadline)?;
         if response.get("id").and_then(serde_json::Value::as_u64) != Some(u64::from(id)) {
             continue;
         }
@@ -86,7 +92,18 @@ fn execute(reader: &mut BufReader<UnixStream>, command: &str, id: u8) -> io::Res
     ))
 }
 
-fn read_json_line(reader: &mut BufReader<UnixStream>) -> io::Result<serde_json::Value> {
+fn read_json_line(
+    reader: &mut BufReader<UnixStream>,
+    deadline: Instant,
+) -> io::Result<serde_json::Value> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "QMP command deadline elapsed",
+        ));
+    }
+    reader.get_ref().set_read_timeout(Some(remaining))?;
     let mut line = String::new();
     let bytes = (&mut *reader)
         .take((MAX_QMP_LINE_BYTES + 1) as u64)
@@ -165,7 +182,8 @@ mod tests {
             (MacOsQmpControlCommandV1::Shutdown, "system_powerdown"),
         ] {
             let (stream, server) = qmp_fixture(expected, None);
-            execute_control_command_on_stream(stream, command).expect("execute QMP command");
+            execute_control_command_on_stream(stream, command, Duration::from_secs(5))
+                .expect("execute QMP command");
             server.join().expect("QMP fixture completed");
         }
     }
@@ -174,7 +192,12 @@ mod tests {
     fn qmp_rejections_and_invalid_greetings_fail_closed() {
         let (stream, server) = qmp_fixture("stop", Some("VM is shutting down"));
         assert!(
-            execute_control_command_on_stream(stream, MacOsQmpControlCommandV1::Pause).is_err()
+            execute_control_command_on_stream(
+                stream,
+                MacOsQmpControlCommandV1::Pause,
+                Duration::from_secs(5),
+            )
+            .is_err()
         );
         server.join().expect("QMP fixture completed");
 
@@ -183,11 +206,50 @@ mod tests {
             .write_all(b"{\"notQMP\":true}\n")
             .expect("write invalid greeting");
         assert_eq!(
-            execute_control_command_on_stream(client, MacOsQmpControlCommandV1::Pause)
-                .expect_err("invalid QMP greeting rejected")
-                .kind(),
+            execute_control_command_on_stream(
+                client,
+                MacOsQmpControlCommandV1::Pause,
+                Duration::from_secs(5),
+            )
+            .expect_err("invalid QMP greeting rejected")
+            .kind(),
             io::ErrorKind::InvalidData
         );
+    }
+
+    #[test]
+    fn unmatched_qmp_events_cannot_extend_the_command_deadline() {
+        let (client, server) = UnixStream::pair().expect("QMP socket pair");
+        let server = thread::spawn(move || {
+            let mut server = BufReader::new(server);
+            server
+                .get_mut()
+                .write_all(b"{\"QMP\":{\"version\":{}}}\r\n")
+                .expect("write QMP greeting");
+            let _capabilities = read_request(&mut server);
+            server
+                .get_mut()
+                .write_all(b"{\"return\":{},\"id\":1}\r\n")
+                .expect("write capabilities response");
+            let _control = read_request(&mut server);
+            for _ in 0..20 {
+                if writeln!(server.get_mut(), "{{\"event\":\"TICK\",\"id\":99}}").is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+        });
+
+        let started = Instant::now();
+        let error = execute_control_command_on_stream(
+            client,
+            MacOsQmpControlCommandV1::Pause,
+            Duration::from_millis(50),
+        )
+        .expect_err("unmatched events do not complete the control command");
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert!(started.elapsed() < Duration::from_millis(250));
+        server.join().expect("QMP event fixture completed");
     }
 
     #[test]
