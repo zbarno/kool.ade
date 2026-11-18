@@ -16,6 +16,7 @@ impl MacOsVmProcessV1 {
     ) -> io::Result<Self> {
         if !executable.is_absolute()
             || executable.file_name().and_then(|name| name.to_str()) != Some(plan.executable)
+            || !plan.release_enabled
             || !(512 * 1024 * 1024..=MAX_GUEST_MEMORY_BYTES).contains(&plan.memory_bytes)
         {
             return Err(io::Error::new(
@@ -64,6 +65,15 @@ mod tests {
             )
             .is_err()
         );
+        let gated = match MacOsVmProcessV1::spawn_qemu(
+            &plan,
+            Path::new("/app/bin/qemu-system-aarch64"),
+            Duration::from_secs(60),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("a closed release gate must prevent process creation"),
+        };
+        assert_eq!(gated.kind(), std::io::ErrorKind::InvalidInput);
         assert!(
             MacOsVmProcessV1::spawn_qemu(
                 &plan,
