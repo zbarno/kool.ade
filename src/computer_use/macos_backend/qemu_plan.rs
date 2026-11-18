@@ -173,11 +173,9 @@ pub(super) fn build_macos_qemu_launch_plan(
 
 pub(super) fn safe_qemu_path(path: &Path) -> bool {
     path.is_absolute()
-        && path
-            .as_os_str()
-            .as_encoded_bytes()
-            .iter()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'/' | b'_' | b'-' | b'.'))
+        && path.as_os_str().as_encoded_bytes().iter().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(*byte, b' ' | b'/' | b'_' | b'-' | b'.')
+        })
         && !path.components().any(|component| {
             matches!(
                 component,
@@ -346,5 +344,35 @@ mod tests {
         assert!(plan_for_disk_budget(2 * GIB, 4 * GIB).is_none());
         let plan = plan_for_disk_budget(3 * GIB, 2 * GIB).expect("bounded disk plan");
         assert_eq!(plan.disk_bytes, 3 * GIB);
+    }
+
+    #[test]
+    fn launch_plan_preserves_standard_macos_application_support_paths() {
+        let path = Path::new(
+            "/Users/operator/Library/Application Support/koolade/computer-use/macos-vm/v1/session.qcow2",
+        );
+        let plan = build_macos_qemu_launch_plan(
+            ComputerHostPlatformV1::MacOsIntel,
+            MacOsQemuLaunchRequestV1 {
+                vcpus: 2,
+                memory_bytes: 2 * MIB * 1024,
+                disk_bytes: 2 * 1024 * MIB,
+                overlay_virtual_size_bytes: 2 * 1024 * MIB,
+                overlay: path,
+                control_socket: Path::new("/var/folders/u/T/ku/session/control.sock"),
+                display_socket: Path::new("/var/folders/u/T/ku/session/display.sock"),
+                boot_config: Path::new(
+                    "/Users/operator/Library/Application Support/koolade/session/boot.json",
+                ),
+                app_helper_config: Path::new(
+                    "/Users/operator/Library/Application Support/koolade/session/helper.json",
+                ),
+            },
+        )
+        .expect("standard Application Support paths are safe argv values");
+        assert!(plan.arguments.iter().any(|arg| {
+            arg.to_string_lossy()
+                .contains("file=/Users/operator/Library/Application Support/koolade")
+        }));
     }
 }

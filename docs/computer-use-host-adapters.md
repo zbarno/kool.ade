@@ -1,7 +1,8 @@
 # Computer Use host adapter design
 
-Status: implementation design with offline macOS QEMU/HVF planning and a
-fail-closed Windows AF_UNIX guest-control transport candidate.
+Status: implementation design with offline macOS QEMU/HVF planning, private
+per-user VM storage, and a fail-closed Windows AF_UNIX guest-control transport
+candidate.
 macOS and Windows host virtualization remain unavailable. The launch planner
 does not start QEMU or establish process, resource, or storage containment.
 This document records candidate hypervisors and the security conditions an
@@ -70,13 +71,23 @@ unrestricted host directory mount.
   `qemu-system-aarch64` with `virt` on Apple silicon. Both plans require HVF,
   disable guest networking and QEMU defaults, validate CPU/memory/disk inputs
   and overlay size against the session budget, and accept only absolute,
-  restricted-character path strings without QEMU option separators. Unix
-  socket paths are limited to the macOS `sun_path` bound.
+  restricted-character path strings without QEMU option separators. ASCII
+  spaces are preserved inside argv option values, including standard paths
+  under macOS Application Support. Unix
+  socket paths are limited to the macOS `sun_path` bound. The plan now obtains
+  session and overlay locations from the app-owned storage helper instead of
+  accepting caller-provided directories.
+- Session and overlay directories are created with mode `0700` and checked for
+  current-user ownership and symlinks. Control and display sockets live in a
+  separate, short per-user temporary directory so long Application Support
+  paths cannot exceed `sun_path`; deterministic fixtures cover private modes,
+  ownership, substituted session symlinks, and socket path length.
 - This planner is not connected to a process launcher or `ComputerBackend`.
-  It does not verify path ownership/symlinks, image architecture/provenance,
-  QEMU binary trust, VM resource enforcement, guest/display socket peer
-  identity, cancellation, or recovery. No plan may be executed until those
-  controls are implemented and reviewed; `release_enabled` remains false.
+  It does not verify every ancestor against concurrent path substitution,
+  image architecture/provenance, QEMU binary trust, VM resource enforcement,
+  guest/display socket peer identity, cancellation, or recovery. No plan may be
+  executed until those controls are implemented and reviewed; `release_enabled`
+  remains false.
 - The bounded process primitive accepts a fixed macOS plan only with an
   absolute architecture-matched executable path and an open host release gate.
   It passes the plan's argument vector directly to the child, without shell
