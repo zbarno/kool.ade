@@ -50,7 +50,7 @@ impl WindowsVmStorage {
         Self::open_at(&path::local_app_data()?)
     }
 
-    fn open_at(local_app_data: &Path) -> io::Result<Self> {
+    pub(super) fn open_at(local_app_data: &Path) -> io::Result<Self> {
         if !local_app_data.is_absolute() {
             return Err(invalid_data("Local AppData is not an absolute path"));
         }

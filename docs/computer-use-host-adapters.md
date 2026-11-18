@@ -123,8 +123,11 @@ unrestricted host directory mount.
   reserved device names, and paths outside the app-owned data root.
 
 The current #395 Windows slices add a deterministic QEMU/WHPX launch plan,
-resource mapping, protected storage, and an app-owned AF_UNIX listener. The plan
-fixes the guest to WHPX, an x86_64 machine, a qcow2 overlay, one virtio-serial
+resource mapping, protected storage, and an app-owned AF_UNIX listener. The
+session-bound constructor verifies the controller signature, exact Windows x64
+host and WHPX target, disabled-network policy, and overlay session/image
+provenance before producing the plan. The plan fixes the guest to WHPX, an
+x86_64 machine, a qcow2 overlay, one virtio-serial
 control endpoint, and no network or display listener. It caps guest vCPU and RAM
 from the signed session budget and configures Job Object CPU, process-memory, and
 process-count limits. The socket is placed under a short private per-user path

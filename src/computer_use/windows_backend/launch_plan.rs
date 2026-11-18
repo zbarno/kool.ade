@@ -25,6 +25,7 @@ const QEMU_JOB_OVERHEAD_BYTES: u64 = 1024 * MIB;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum WindowsLaunchBlocker {
     InvalidSession,
+    UnsupportedTarget,
     UnsupportedSessionClass,
     NetworkNotDisabled,
     InvalidResourceBudget,
