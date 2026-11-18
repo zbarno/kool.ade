@@ -11,6 +11,11 @@ on:
         description: Monotonically increasing signed catalog generation
         required: true
         type: string
+      architecture:
+        description: Guest image architecture produced by the candidate workflow
+        required: true
+        type: choice
+        options: [x86_64, aarch64]
   push:
     branches: [main]
     paths:
@@ -46,21 +51,33 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           set -euo pipefail
           [[ "$CANDIDATE_RUN_ID" =~ ^[0-9]+$ ]]
+          case "$CANDIDATE_ARCHITECTURE" in
+            x86_64) artifact="computer-use-guest-candidate-${GITHUB_SHA}" ;;
+            aarch64) artifact="computer-use-guest-candidate-aarch64-${GITHUB_SHA}" ;;
+            *) echo "unsupported candidate architecture" >&2; exit 1 ;;
+          esac
           workflow_id="$(gh api repos/${GITHUB_REPOSITORY}/actions/workflows/computer-use-images.yml --jq .id)"
           run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}")"
           jq -e --arg sha "$GITHUB_SHA" --argjson workflow "$workflow_id" \
             '.workflow_id == $workflow and .event == "workflow_dispatch" and .head_branch == "main" and .head_sha == $sha and .status == "completed" and .conclusion == "success"' \
             <<< "$run" >/dev/null
-          gh run download "$CANDIDATE_RUN_ID" --name "computer-use-guest-candidate-${GITHUB_SHA}" --dir "$RUNNER_TEMP/candidate"
+          gh run download "$CANDIDATE_RUN_ID" --name "$artifact" --dir "$RUNNER_TEMP/candidate"
       - name: Verify candidate provenance and SBOM attestations
         env:
           GH_TOKEN: ${{ github.token }}
+          CANDIDATE_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           set -euo pipefail
-          image="$RUNNER_TEMP/candidate/koolade-computer-use-guest-x86_64.qcow2"
+          case "$CANDIDATE_ARCHITECTURE" in
+            x86_64) image_name=koolade-computer-use-guest-x86_64.qcow2 ;;
+            aarch64) image_name=koolade-computer-use-guest-aarch64.qcow2 ;;
+            *) echo "unsupported candidate architecture" >&2; exit 1 ;;
+          esac
+          image="$RUNNER_TEMP/candidate/$image_name"
           gh attestation verify "$image" --repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/computer-use-images.yml" \
             --source-ref refs/heads/main --source-digest "$GITHUB_SHA" \
@@ -77,30 +94,55 @@ jobs:
         run: |
           set -euo pipefail
           cargo +1.98.1 build --locked --release --bin computer-use-image-promotion
+      - name: Download and verify currently promoted release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/previous-release"
+          if [[ "$(jq -r .status containers/computer-use/images.lock.json)" == promoted ]]; then
+            previous_tag="$(jq -r .catalogVersion containers/computer-use/catalog-v1.json)"
+            gh release download "$previous_tag" --dir "$RUNNER_TEMP/previous-release"
+            target/release/computer-use-image-promotion verify-release-assets \
+              containers/computer-use/catalog-v1.json \
+              containers/computer-use/images.lock.json \
+              "$RUNNER_TEMP/previous-release"
+          else
+            [[ "$(jq -c . containers/computer-use/catalog-v1.json)" == '{"status":"not_promoted"}' ]]
+          fi
       - name: Sign catalog with application-pinned key
         env:
           COMPUTER_USE_CATALOG_SIGNING_KEY: ${{ secrets.COMPUTER_USE_CATALOG_SIGNING_KEY }}
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
           CATALOG_GENERATION: ${{ inputs.generation }}
+          CANDIDATE_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           set -euo pipefail
           [[ "$CATALOG_GENERATION" =~ ^[1-9][0-9]*$ ]]
+          case "$CANDIDATE_ARCHITECTURE" in
+            x86_64) image_name=koolade-computer-use-guest-x86_64.qcow2 ;;
+            aarch64) image_name=koolade-computer-use-guest-aarch64.qcow2 ;;
+            *) echo "unsupported candidate architecture" >&2; exit 1 ;;
+          esac
+          image_basename="${image_name%.qcow2}"
           mkdir -p "$RUNNER_TEMP/promotion"
           printf '%s' "$COMPUTER_USE_CATALOG_SIGNING_KEY" | target/release/computer-use-image-promotion sign \
-            "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/candidate/koolade-computer-use-agent" \
-            "$RUNNER_TEMP/promotion" containers/computer-use/catalog-v1.json \
+            "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/candidate/$image_basename.agent" \
+            "$RUNNER_TEMP/previous-release" "$RUNNER_TEMP/promotion" \
+            containers/computer-use/catalog-v1.json \
             containers/computer-use/images.lock.json "$GITHUB_SHA" "$CATALOG_GENERATION" \
-            "$RUNNER_TEMP/verified-attestations.json"
+            "$RUNNER_TEMP/verified-attestations.json" "$CANDIDATE_ARCHITECTURE"
           target/release/computer-use-image-promotion verify \
             "$RUNNER_TEMP/promotion/catalog-v1.json" "$RUNNER_TEMP/promotion/images.lock.json"
-          cp "$RUNNER_TEMP/candidate/koolade-computer-use-guest-x86_64.qcow2" "$RUNNER_TEMP/promotion/"
-          cp "$RUNNER_TEMP/candidate/koolade-computer-use-guest-x86_64.sbom.cdx.json" "$RUNNER_TEMP/promotion/"
-          cp "$RUNNER_TEMP/verified-attestations.json" "$RUNNER_TEMP/promotion/attestations.json"
+          target/release/computer-use-image-promotion verify-release-assets \
+            "$RUNNER_TEMP/promotion/catalog-v1.json" \
+            "$RUNNER_TEMP/promotion/images.lock.json" "$RUNNER_TEMP/promotion"
       - name: Create draft release and catalog review branch
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
           CATALOG_GENERATION: ${{ inputs.generation }}
+          CANDIDATE_ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           set -euo pipefail
           tag="$(jq -r .release_tag "$RUNNER_TEMP/promotion/promotion-record.json")"
@@ -111,9 +153,9 @@ jobs:
           gh release create "$tag" --target "$GITHUB_SHA" --draft \
             --title "Computer Use guest image ${CATALOG_GENERATION}" \
             --notes "Draft promotion for reviewed application catalog update. The release remains a draft until the catalog and lock PR merges." \
-            "$RUNNER_TEMP/promotion/koolade-computer-use-guest-x86_64.qcow2" \
-            "$RUNNER_TEMP/promotion/koolade-computer-use-guest-x86_64.sbom.cdx.json" \
-            "$RUNNER_TEMP/verified-attestations.json" \
+            "$RUNNER_TEMP/promotion/"*.qcow2 \
+            "$RUNNER_TEMP/promotion/"*.sbom.cdx.json \
+            "$RUNNER_TEMP/promotion/verified-attestations-"*.json \
             "$RUNNER_TEMP/promotion/catalog-v1.json" "$RUNNER_TEMP/promotion/images.lock.json" \
             "$RUNNER_TEMP/promotion/promotion-record.json"
           branch="build/computer-use-image-catalog-${CATALOG_GENERATION}"
@@ -130,6 +172,7 @@ jobs:
             echo
             echo "Draft release: [${tag}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag})"
             echo "Candidate run: ${CANDIDATE_RUN_ID}"
+            echo "Candidate architecture: ${CANDIDATE_ARCHITECTURE}"
             echo "Source revision: ${GITHUB_SHA}"
             echo "Review branch: \`${branch}\`"
             echo
@@ -163,14 +206,8 @@ jobs:
           gh release download "$tag" --dir "$RUNNER_TEMP/release"
           cmp "$catalog" "$RUNNER_TEMP/release/catalog-v1.json"
           cmp "$lock" "$RUNNER_TEMP/release/images.lock.json"
-          target/release/computer-use-image-promotion verify-image "$catalog" "$lock" \
-            "$RUNNER_TEMP/release/koolade-computer-use-guest-x86_64.qcow2"
-          expected_sbom="$(jq -r '.images[] | select(.status == "approved") | .sbom_sha256' "$catalog")"
-          actual_sbom="sha256:$(sha256sum "$RUNNER_TEMP/release/koolade-computer-use-guest-x86_64.sbom.cdx.json" | cut -d ' ' -f 1)"
-          expected_attestations="$(jq -r '.images[] | select(.status == "approved") | .build_attestation_sha256' "$catalog")"
-          actual_attestations="sha256:$(sha256sum "$RUNNER_TEMP/release/verified-attestations.json" | cut -d ' ' -f 1)"
-          [[ "$actual_sbom" == "$expected_sbom" ]]
-          [[ "$actual_attestations" == "$expected_attestations" ]]
+          target/release/computer-use-image-promotion verify-release-assets \
+            "$catalog" "$lock" "$RUNNER_TEMP/release"
           release_json="$(gh release view "$tag" --json isDraft)"
           if [[ "$(jq -r .isDraft <<< "$release_json")" == true ]]; then
             gh release edit "$tag" --draft=false

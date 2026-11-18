@@ -1,7 +1,12 @@
 mod candidate;
 mod files;
 mod previous;
+mod release_assets;
+pub(super) use candidate::CandidateArchitecture;
 
+#[cfg(test)]
+#[path = "catalog/architecture_tests.rs"]
+mod architecture_tests;
 #[cfg(test)]
 #[path = "catalog/tests.rs"]
 mod tests;
@@ -11,8 +16,8 @@ use std::path::Path;
 use anyhow::{Context, ensure};
 use ed25519_dalek::{Signer, SigningKey};
 use koolade::computer_use::guest_image::{
-    GuestImageManifestV1, GuestImageStatusV1, application_guest_image_manifest_trust_v1,
-    verify_guest_image_catalog,
+    GuestImageManifestTrustV1, GuestImageManifestV1, GuestImageStatusV1,
+    application_guest_image_manifest_trust_v1, verify_guest_image_catalog,
 };
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +48,7 @@ struct PromotionRecordV1 {
     image_digest: String,
     manifest_sha256: String,
     catalog_generation: u64,
+    architecture: String,
     artifact_name: String,
     artifact_size_bytes: u64,
 }
@@ -50,12 +56,14 @@ struct PromotionRecordV1 {
 pub(super) struct SigningRequest<'a> {
     pub(super) candidate_dir: &'a Path,
     pub(super) companion_binary: &'a Path,
+    pub(super) previous_release_dir: &'a Path,
     pub(super) output_dir: &'a Path,
     pub(super) previous_catalog_path: &'a Path,
     pub(super) previous_lock_path: &'a Path,
     pub(super) expected_source_revision: &'a str,
     pub(super) generation: u64,
     pub(super) attestations_path: &'a Path,
+    pub(super) architecture: CandidateArchitecture,
 }
 
 pub(super) fn sign_candidate(
@@ -65,12 +73,14 @@ pub(super) fn sign_candidate(
     let SigningRequest {
         candidate_dir,
         companion_binary,
+        previous_release_dir,
         output_dir,
         previous_catalog_path,
         previous_lock_path,
         expected_source_revision,
         generation,
         attestations_path,
+        architecture,
     } = request;
     let now_ms = unix_time_ms()?;
     let candidate = read_candidate(
@@ -78,43 +88,39 @@ pub(super) fn sign_candidate(
         companion_binary,
         expected_source_revision,
         attestations_path,
+        architecture,
     )?;
     let trust = application_guest_image_manifest_trust_v1()
         .map_err(|_| anyhow::anyhow!("application-pinned image trust is invalid"))?;
     let previous = read_previous_bundle(previous_catalog_path, previous_lock_path, &trust)?;
+    let candidate_entry = candidate.image.clone();
+    std::fs::create_dir_all(output_dir).context("create promotion output directory")?;
+    release_assets::stage_promotion_assets(
+        candidate_dir,
+        attestations_path,
+        previous_release_dir,
+        output_dir,
+        &previous,
+        &candidate_entry,
+        &trust,
+    )?;
     let (manifest, lock) =
         build_signed_bundle(candidate, previous, generation, now_ms, signing_key, &trust)?;
     manifest.validate()?;
-
-    std::fs::create_dir_all(output_dir).context("create promotion output directory")?;
     write_json(output_dir.join("catalog-v1.json"), &manifest)?;
     write_json(output_dir.join("images.lock.json"), &lock)?;
     let record = PromotionRecordV1 {
         release_tag: manifest.catalog_version.clone(),
-        source_revision: manifest
-            .images
-            .iter()
-            .find(|image| image.status == GuestImageStatusV1::Approved)
-            .context("signed catalog has no approved image")?
-            .source_revision
-            .clone(),
-        image_digest: lock
-            .images
-            .first()
-            .context("signed catalog has no locked image")?
-            .clone(),
+        source_revision: candidate_entry.source_revision.clone(),
+        image_digest: candidate_entry.image_digest.clone(),
         manifest_sha256: lock
             .manifest_sha256
             .clone()
             .context("signed catalog has no digest")?,
         catalog_generation: generation,
-        artifact_name: candidate::IMAGE_NAME.to_owned(),
-        artifact_size_bytes: manifest
-            .images
-            .iter()
-            .find(|image| image.status == GuestImageStatusV1::Approved)
-            .context("signed catalog has no approved image")?
-            .artifact_size_bytes,
+        architecture: architecture.label().to_owned(),
+        artifact_name: candidate_entry.artifact_name.clone(),
+        artifact_size_bytes: candidate_entry.artifact_size_bytes,
     };
     write_json(output_dir.join("promotion-record.json"), &record)?;
     Ok(())
@@ -150,7 +156,9 @@ fn build_signed_bundle(
         .filter(|image| image.status == GuestImageStatusV1::Approved)
         .collect::<Vec<_>>();
     for image in &mut images {
-        image.status = GuestImageStatusV1::Revoked;
+        if image.architecture == candidate.image.architecture {
+            image.status = GuestImageStatusV1::Revoked;
+        }
     }
     images.push(candidate.image.clone());
     images.sort_by(|left, right| left.image_digest.cmp(&right.image_digest));
@@ -175,6 +183,7 @@ fn build_signed_bundle(
     );
     let verified = verify_guest_image_catalog(&serde_json::to_vec(&manifest)?, trust, now_ms)
         .context("signed catalog does not verify against the application-pinned key")?;
+    validate_approved_architectures(&verified)?;
     let lock = GuestImageBuildLockV1 {
         schema_version: 1,
         status: "promoted".to_owned(),
@@ -189,6 +198,24 @@ fn build_signed_bundle(
     Ok((manifest, lock))
 }
 
+fn validate_approved_architectures(
+    catalog: &koolade::computer_use::guest_image::VerifiedGuestImageCatalogV1,
+) -> anyhow::Result<()> {
+    let approved = catalog.approved_images().collect::<Vec<_>>();
+    ensure!(
+        !approved.is_empty(),
+        "promoted catalog has no approved images"
+    );
+    let mut architectures = std::collections::BTreeSet::new();
+    for image in approved {
+        ensure!(
+            architectures.insert(image.architecture),
+            "promoted catalog contains multiple approved images for one architecture"
+        );
+    }
+    Ok(())
+}
+
 pub(super) fn verify_catalog_bundle(catalog_path: &Path, lock_path: &Path) -> anyhow::Result<()> {
     let bytes = read_bounded(catalog_path, 1024 * 1024)?;
     let lock: GuestImageBuildLockV1 = serde_json::from_slice(&read_bounded(lock_path, 64 * 1024)?)
@@ -198,34 +225,18 @@ pub(super) fn verify_catalog_bundle(catalog_path: &Path, lock_path: &Path) -> an
     let catalog = verify_guest_image_catalog(&bytes, &trust, unix_time_ms()?)
         .context("verify signed guest image catalog")?;
     validate_lock_against_catalog(&lock, &catalog)?;
-    ensure!(
-        catalog.approved_images().count() == 1,
-        "promoted catalog must contain exactly one approved image"
-    );
-    Ok(())
+    validate_approved_architectures(&catalog)
 }
 
-pub(super) fn verify_release_image(
+pub(super) fn verify_release_assets(
     catalog_path: &Path,
     lock_path: &Path,
-    image_path: &Path,
+    assets_directory: &Path,
 ) -> anyhow::Result<()> {
     verify_catalog_bundle(catalog_path, lock_path)?;
     let bytes = read_bounded(catalog_path, 1024 * 1024)?;
     let trust = application_guest_image_manifest_trust_v1()
         .map_err(|_| anyhow::anyhow!("application-pinned image trust is invalid"))?;
     let catalog = verify_guest_image_catalog(&bytes, &trust, unix_time_ms()?)?;
-    let entry = catalog
-        .approved_images()
-        .next()
-        .context("promoted image is missing")?;
-    ensure!(
-        files::sha256_file(image_path)? == entry.image_digest,
-        "release asset digest mismatch"
-    );
-    ensure!(
-        std::fs::metadata(image_path)?.len() == entry.artifact_size_bytes,
-        "release asset size mismatch"
-    );
-    Ok(())
+    release_assets::verify_approved_assets(&catalog, assets_directory)
 }

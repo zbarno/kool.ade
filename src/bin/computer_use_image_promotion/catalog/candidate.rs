@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, str::FromStr};
 
 use anyhow::{Context, ensure};
 use koolade::computer_use::guest_image::{
@@ -8,9 +8,55 @@ use serde_json::Value;
 
 use super::files::{read_bounded, sha256_bytes, sha256_file};
 
-pub(super) const IMAGE_BASENAME: &str = "koolade-computer-use-guest-x86_64";
-pub(super) const IMAGE_NAME: &str = "koolade-computer-use-guest-x86_64.qcow2";
 const MAX_ATTESTATION_BYTES: usize = 32 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CandidateArchitecture {
+    X86_64,
+    Aarch64,
+}
+
+impl CandidateArchitecture {
+    pub(super) fn image_basename(self) -> &'static str {
+        match self {
+            Self::X86_64 => "koolade-computer-use-guest-x86_64",
+            Self::Aarch64 => "koolade-computer-use-guest-aarch64",
+        }
+    }
+
+    pub(super) fn image_name(self) -> &'static str {
+        match self {
+            Self::X86_64 => "koolade-computer-use-guest-x86_64.qcow2",
+            Self::Aarch64 => "koolade-computer-use-guest-aarch64.qcow2",
+        }
+    }
+
+    pub(super) fn manifest_architecture(self) -> ComputerGuestArchitectureV1 {
+        match self {
+            Self::X86_64 => ComputerGuestArchitectureV1::X86_64,
+            Self::Aarch64 => ComputerGuestArchitectureV1::Aarch64,
+        }
+    }
+
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::X86_64 => "x86_64",
+            Self::Aarch64 => "aarch64",
+        }
+    }
+}
+
+impl FromStr for CandidateArchitecture {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> anyhow::Result<Self> {
+        match value {
+            "x86_64" => Ok(Self::X86_64),
+            "aarch64" => Ok(Self::Aarch64),
+            _ => anyhow::bail!("unsupported guest image architecture"),
+        }
+    }
+}
 
 pub(super) struct Candidate {
     pub(super) image: GuestImageEntryV1,
@@ -21,6 +67,7 @@ pub(super) fn read_candidate(
     companion_binary: &Path,
     expected_source_revision: &str,
     attestations_path: &Path,
+    architecture: CandidateArchitecture,
 ) -> anyhow::Result<Candidate> {
     ensure!(
         expected_source_revision.len() == 40
@@ -29,39 +76,41 @@ pub(super) fn read_candidate(
                 .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()),
         "expected source revision is not a canonical Git SHA"
     );
-    let image_path = directory.join(format!("{IMAGE_BASENAME}.qcow2"));
+    let image_basename = architecture.image_basename();
+    let image_name = architecture.image_name();
+    let image_path = directory.join(image_name);
     let image_digest = verify_sha256sum_sidecar(
-        directory.join(format!("{IMAGE_BASENAME}.sha256")),
+        directory.join(format!("{image_basename}.sha256")),
         &image_path,
-        IMAGE_NAME,
+        image_name,
     )?;
     let image_size_bytes =
-        read_virtual_size(&directory.join(format!("{IMAGE_BASENAME}.qemu-info.json")))?;
+        read_virtual_size(&directory.join(format!("{image_basename}.qemu-info.json")))?;
     let artifact_size_bytes = std::fs::metadata(&image_path)
         .context("stat candidate qcow2")?
         .len();
     ensure!(artifact_size_bytes > 0, "candidate artifact is empty");
 
-    let agent_name = format!("{IMAGE_BASENAME}.agent");
+    let agent_name = format!("{image_basename}.agent");
     let companion_sha256 = read_sha256sum_sidecar(
-        directory.join(format!("{IMAGE_BASENAME}.agent.sha256")),
+        directory.join(format!("{image_basename}.agent.sha256")),
         &agent_name,
     )?;
     ensure!(
         sha256_file(companion_binary)? == companion_sha256,
         "candidate companion digest does not match the source-built binary"
     );
-    let recipe_components = directory.join(format!("{IMAGE_BASENAME}.recipe-components.sha256"));
+    let recipe_components = directory.join(format!("{image_basename}.recipe-components.sha256"));
     let build_recipe_sha256 = sha256_file(&recipe_components)?;
     let declared_recipe =
-        std::fs::read_to_string(directory.join(format!("{IMAGE_BASENAME}.recipe.sha256")))
+        std::fs::read_to_string(directory.join(format!("{image_basename}.recipe.sha256")))
             .context("read recipe digest")?;
     ensure!(
         declared_recipe.trim() == build_recipe_sha256,
         "recipe digest sidecar mismatch"
     );
 
-    let sbom_path = directory.join(format!("{IMAGE_BASENAME}.sbom.cdx.json"));
+    let sbom_path = directory.join(format!("{image_basename}.sbom.cdx.json"));
     let sbom_bytes = read_bounded(&sbom_path, 16 * 1024 * 1024)?;
     let sbom: Value = serde_json::from_slice(&sbom_bytes).context("parse CycloneDX SBOM")?;
     ensure!(
@@ -69,9 +118,9 @@ pub(super) fn read_candidate(
         "SBOM is not CycloneDX"
     );
     let sbom_sha256 = verify_sha256sum_sidecar(
-        directory.join(format!("{IMAGE_BASENAME}.sbom.sha256")),
+        directory.join(format!("{image_basename}.sbom.sha256")),
         &sbom_path,
-        &format!("{IMAGE_BASENAME}.sbom.cdx.json"),
+        &format!("{image_basename}.sbom.cdx.json"),
     )?;
     ensure!(
         sbom_sha256 == sha256_bytes(&sbom_bytes),
@@ -79,7 +128,7 @@ pub(super) fn read_candidate(
     );
 
     let source_revision =
-        std::fs::read_to_string(directory.join(format!("{IMAGE_BASENAME}.source-revision")))
+        std::fs::read_to_string(directory.join(format!("{image_basename}.source-revision")))
             .context("read candidate source revision")?
             .trim()
             .to_owned();
@@ -97,11 +146,11 @@ pub(super) fn read_candidate(
 
     Ok(Candidate {
         image: GuestImageEntryV1 {
-            architecture: ComputerGuestArchitectureV1::X86_64,
+            architecture: architecture.manifest_architecture(),
             image_digest,
             image_size_bytes,
             artifact_size_bytes,
-            artifact_name: IMAGE_NAME.to_owned(),
+            artifact_name: image_name.to_owned(),
             guest_release: format!("debian-bookworm-{}", &source_revision[..12]),
             source_revision: source_revision.clone(),
             build_recipe_sha256,
