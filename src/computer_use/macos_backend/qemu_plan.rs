@@ -36,6 +36,7 @@ pub(super) struct MacOsQemuLaunchRequestV1<'a> {
     pub(crate) overlay_virtual_size_bytes: u64,
     pub(crate) overlay: &'a Path,
     pub(crate) control_socket: &'a Path,
+    pub(crate) qmp_socket: &'a Path,
     pub(crate) display_socket: &'a Path,
     pub(crate) boot_config: &'a Path,
     pub(crate) app_helper_config: &'a Path,
@@ -57,6 +58,7 @@ pub(super) fn build_macos_qemu_launch_plan(
         overlay_virtual_size_bytes,
         overlay,
         control_socket,
+        qmp_socket,
         display_socket,
         boot_config,
         app_helper_config,
@@ -92,7 +94,7 @@ pub(super) fn build_macos_qemu_launch_plan(
             return None;
         }
     }
-    for path in [control_socket, display_socket] {
+    for path in [control_socket, qmp_socket, display_socket] {
         if !safe_qemu_path(path)
             || path.as_os_str().as_encoded_bytes().len() > MAX_UNIX_SOCKET_PATH_BYTES
         {
@@ -110,6 +112,7 @@ pub(super) fn build_macos_qemu_launch_plan(
         "socket,id=guestcontrol,path={},server=on,wait=off",
         control_socket.display()
     );
+    let qmp = format!("unix:{},server=on,wait=off", qmp_socket.display());
     let vnc = format!("unix:{},share=allow-exclusive", display_socket.display());
     let boot = format!(
         "name=opt/org.koolade.computer-use/boot-config,file={}",
@@ -140,6 +143,8 @@ pub(super) fn build_macos_qemu_launch_plan(
         "none",
         "-vnc",
         &vnc,
+        "-qmp",
+        &qmp,
         "-nic",
         "none",
         "-monitor",
@@ -198,6 +203,7 @@ mod tests {
                 overlay_virtual_size_bytes: 2 * 1024 * MIB,
                 overlay: Path::new("/private/session/disk.qcow2"),
                 control_socket: Path::new("/private/session/control.sock"),
+                qmp_socket: Path::new("/private/session/qmp.sock"),
                 display_socket: Path::new("/private/session/display.sock"),
                 boot_config: Path::new("/private/session/boot.json"),
                 app_helper_config: Path::new("/private/session/helper.json"),
@@ -219,6 +225,7 @@ mod tests {
                 overlay_virtual_size_bytes,
                 overlay: Path::new("/private/session/disk.qcow2"),
                 control_socket: Path::new("/private/session/control.sock"),
+                qmp_socket: Path::new("/private/session/qmp.sock"),
                 display_socket: Path::new("/private/session/display.sock"),
                 boot_config: Path::new("/private/session/boot.json"),
                 app_helper_config: Path::new("/private/session/helper.json"),
@@ -237,6 +244,11 @@ mod tests {
                 .any(|pair| pair == ["-machine", "q35,accel=hvf"])
         );
         assert!(args.windows(2).any(|pair| pair == ["-nic", "none"]));
+        assert!(
+            args.windows(2).any(|pair| {
+                pair == ["-qmp", "unix:/private/session/qmp.sock,server=on,wait=off"]
+            })
+        );
         assert!(!plan.release_enabled);
     }
 
@@ -255,13 +267,14 @@ mod tests {
                 .any(|pair| pair == ["-device", "virtio-gpu-pci"])
         );
         assert!(args.windows(2).any(|pair| pair == ["-nic", "none"]));
+        assert!(args.windows(2).any(|pair| pair[0] == "-qmp"));
         assert!(!plan.release_enabled);
     }
 
     #[test]
     fn launch_plan_rejects_unsupported_hosts_and_unbounded_inputs() {
         let valid = plan(ComputerHostPlatformV1::MacOsIntel);
-        let args_for = |vcpus, memory, overlay: &Path, socket: &Path| {
+        let args_for = |vcpus, memory, overlay: &Path, socket: &Path, qmp: &Path| {
             build_macos_qemu_launch_plan(
                 ComputerHostPlatformV1::MacOsIntel,
                 MacOsQemuLaunchRequestV1 {
@@ -271,6 +284,7 @@ mod tests {
                     overlay_virtual_size_bytes: 2 * 1024 * MIB,
                     overlay,
                     control_socket: socket,
+                    qmp_socket: qmp,
                     display_socket: Path::new("/private/session/display.sock"),
                     boot_config: Path::new("/private/session/boot.json"),
                     app_helper_config: Path::new("/private/session/helper.json"),
@@ -287,6 +301,7 @@ mod tests {
                 overlay_virtual_size_bytes: 2 * 1024 * MIB,
                 overlay: Path::new("/disk"),
                 control_socket: Path::new("/sock"),
+                qmp_socket: Path::new("/qmp"),
                 display_socket: Path::new("/display"),
                 boot_config: Path::new("/boot"),
                 app_helper_config: Path::new("/helper"),
@@ -298,16 +313,45 @@ mod tests {
                 pair[0] == "-m" && pair[1] == format!("{MIN_MEMORY_MIB}M").as_str()
             })
         );
-        assert!(args_for(0, 4 * MIB * 1024, Path::new("/disk"), Path::new("/sock")).is_none());
-        assert!(args_for(17, 4 * MIB * 1024, Path::new("/disk"), Path::new("/sock")).is_none());
-        assert!(args_for(2, 1, Path::new("/disk"), Path::new("/sock")).is_none());
-        assert!(args_for(2, 4 * MIB * 1024, Path::new("relative"), Path::new("/sock")).is_none());
+        let qmp = Path::new("/private/session/qmp.sock");
+        assert!(
+            args_for(
+                0,
+                4 * MIB * 1024,
+                Path::new("/disk"),
+                Path::new("/sock"),
+                qmp
+            )
+            .is_none()
+        );
+        assert!(
+            args_for(
+                17,
+                4 * MIB * 1024,
+                Path::new("/disk"),
+                Path::new("/sock"),
+                qmp
+            )
+            .is_none()
+        );
+        assert!(args_for(2, 1, Path::new("/disk"), Path::new("/sock"), qmp).is_none());
+        assert!(
+            args_for(
+                2,
+                4 * MIB * 1024,
+                Path::new("relative"),
+                Path::new("/sock"),
+                qmp
+            )
+            .is_none()
+        );
         assert!(
             args_for(
                 2,
                 4 * MIB * 1024,
                 Path::new("/disk,server=on"),
-                Path::new("/sock")
+                Path::new("/sock"),
+                qmp
             )
             .is_none()
         );
@@ -315,9 +359,20 @@ mod tests {
             2,
             4 * MIB * 1024,
             Path::new("/disk"),
-            Path::new("/private/session/this-socket-path-is-intentionally-much-longer-than-the-unix-domain-socket-limit-and-must-be-rejected.sock")
+            Path::new("/private/session/this-socket-path-is-intentionally-much-longer-than-the-unix-domain-socket-limit-and-must-be-rejected.sock"),
+            qmp
         )
         .is_none());
+        assert!(
+            args_for(
+                2,
+                4 * MIB * 1024,
+                Path::new("/disk"),
+                Path::new("/sock"),
+                Path::new("/qmp,server=on")
+            )
+            .is_none()
+        );
         assert!(
             build_macos_qemu_launch_plan(
                 ComputerHostPlatformV1::LinuxX86_64,
@@ -328,6 +383,7 @@ mod tests {
                     overlay_virtual_size_bytes: 2 * 1024 * MIB,
                     overlay: Path::new("/disk"),
                     control_socket: Path::new("/sock"),
+                    qmp_socket: Path::new("/qmp"),
                     display_socket: Path::new("/display"),
                     boot_config: Path::new("/boot"),
                     app_helper_config: Path::new("/helper"),
@@ -360,6 +416,7 @@ mod tests {
                 overlay_virtual_size_bytes: 2 * 1024 * MIB,
                 overlay: path,
                 control_socket: Path::new("/var/folders/u/T/ku/session/control.sock"),
+                qmp_socket: Path::new("/var/folders/u/T/ku/session/qmp.sock"),
                 display_socket: Path::new("/var/folders/u/T/ku/session/display.sock"),
                 boot_config: Path::new(
                     "/Users/operator/Library/Application Support/koolade/session/boot.json",

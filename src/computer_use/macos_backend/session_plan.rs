@@ -102,6 +102,7 @@ impl MacOsQemuLaunchPlanV1 {
                 overlay_virtual_size_bytes: overlay.virtual_size_bytes(),
                 overlay: overlay.path(),
                 control_socket: &transport_directory.join("guest-control.sock"),
+                qmp_socket: &transport_directory.join("qmp.sock"),
                 display_socket: &transport_directory.join("display.sock"),
                 boot_config: &session_directory.join("guest-boot-config.json"),
                 app_helper_config: &session_directory.join("guest-app-helper-config.json"),
@@ -266,11 +267,20 @@ mod tests {
         let display = storage
             .display_socket_path(SESSION_ID)
             .expect("short display socket path");
+        let qmp = storage
+            .transport_session_directory(SESSION_ID)
+            .expect("private QMP transport directory")
+            .join("qmp.sock");
         assert!(control.as_os_str().as_encoded_bytes().len() <= 103);
         assert!(display.as_os_str().as_encoded_bytes().len() <= 103);
+        assert!(qmp.as_os_str().as_encoded_bytes().len() <= 103);
         assert!(plan.arguments.iter().any(|arg| {
             arg.to_string_lossy()
                 .contains(control.file_name().unwrap().to_string_lossy().as_ref())
+        }));
+        assert!(plan.arguments.windows(2).any(|pair| {
+            pair[0] == "-qmp"
+                && pair[1] == format!("unix:{},server=on,wait=off", qmp.display()).as_str()
         }));
     }
 
