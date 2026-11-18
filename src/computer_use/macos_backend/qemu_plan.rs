@@ -274,6 +274,39 @@ mod tests {
     }
 
     #[test]
+    fn macos_launch_plans_have_no_network_or_host_directory_shares() {
+        for platform in [
+            ComputerHostPlatformV1::MacOsIntel,
+            ComputerHostPlatformV1::MacOsAppleSilicon,
+        ] {
+            let plan = plan(platform);
+            let args = plan
+                .arguments
+                .iter()
+                .map(|arg| arg.to_string_lossy())
+                .collect::<Vec<_>>();
+
+            assert!(args.windows(2).any(|pair| pair == ["-nic", "none"]));
+            for forbidden in ["-net", "-netdev", "-virtfs", "-fsdev", "-smb"] {
+                assert!(!args.iter().any(|arg| arg == forbidden), "{forbidden}");
+            }
+            assert!(!args.iter().any(|arg| arg.contains("hostfwd=")));
+            assert!(!args.iter().any(|arg| arg.starts_with("tcp:")));
+            assert_eq!(
+                args.iter().filter(|arg| arg.as_ref() == "-drive").count(),
+                1
+            );
+            assert!(
+                args.iter()
+                    .any(|arg| { arg.contains("file=/private/session/disk.qcow2") })
+            );
+            assert!(args.iter().any(|arg| {
+                arg.contains("socket,id=guestcontrol,path=/private/session/control.sock")
+            }));
+        }
+    }
+
+    #[test]
     fn launch_plan_rejects_unsupported_hosts_and_unbounded_inputs() {
         let valid = plan(ComputerHostPlatformV1::MacOsIntel);
         let args_for = |vcpus, memory, overlay: &Path, socket: &Path, qmp: &Path| {
