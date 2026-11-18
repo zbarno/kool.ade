@@ -26,7 +26,7 @@ impl MacOsVmProcessV1 {
         }
         let mut command = Command::new(executable);
         command.args(&plan.arguments);
-        Self::spawn(command, plan.memory_bytes, cpu_time_limit)
+        Self::spawn(command, plan.memory_bytes, plan.disk_bytes, cpu_time_limit)
     }
 }
 
@@ -48,6 +48,8 @@ mod tests {
             MacOsQemuLaunchRequestV1 {
                 vcpus: 2,
                 memory_bytes: 2 * 1024 * 1024 * 1024,
+                disk_bytes: 2 * 1024 * 1024 * 1024,
+                overlay_virtual_size_bytes: 2 * 1024 * 1024 * 1024,
                 overlay: Path::new("/private/session/disk.qcow2"),
                 control_socket: Path::new("/private/session/control.sock"),
                 display_socket: Path::new("/private/session/display.sock"),

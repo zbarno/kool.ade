@@ -68,21 +68,27 @@ unrestricted host directory mount.
 - The current macOS code produces a fixed, offline QEMU launch plan for the
   native host architecture: `qemu-system-x86_64` with `q35` on Intel, and
   `qemu-system-aarch64` with `virt` on Apple silicon. Both plans require HVF,
-  disable guest networking and QEMU defaults, validate CPU/memory inputs, and
-  accept only absolute, restricted-character path strings without QEMU option
-  separators. Unix socket paths are limited to the macOS `sun_path` bound.
+  disable guest networking and QEMU defaults, validate CPU/memory/disk inputs
+  and overlay size against the session budget, and accept only absolute,
+  restricted-character path strings without QEMU option separators. Unix
+  socket paths are limited to the macOS `sun_path` bound.
 - This planner is not connected to a process launcher or `ComputerBackend`.
   It does not verify path ownership/symlinks, image architecture/provenance,
   QEMU binary trust, VM resource enforcement, guest/display socket peer
   identity, cancellation, or recovery. No plan may be executed until those
   controls are implemented and reviewed; `release_enabled` remains false.
-- The bounded process primitive now accepts a fixed macOS plan only with an
-  absolute executable path whose basename matches the plan's selected
-  architecture. It passes the plan's argument vector directly to the child,
-  without shell parsing or ambient `PATH` lookup. Its guest RAM bound comes
-  from the value encoded in the plan, capped at 16 GiB. The caller still has
-  to resolve and verify an app-trusted QEMU runtime. This does not establish
-  binary provenance, a host memory cap, or a usable `ComputerBackend` lifecycle.
+- The bounded process primitive accepts a fixed macOS plan only with an
+  absolute architecture-matched executable path and an open host release gate.
+  It passes the plan's argument vector directly to the child, without shell
+  parsing or ambient `PATH` lookup. Guest RAM comes from the plan, capped at
+  16 GiB; the process inherits the session disk budget as `RLIMIT_FSIZE` to
+  cap individual child-created files and runs with a private process group,
+  CPU-time limit, no core dump, restricted file descriptors, and a private
+  creation umask. `RLIMIT_FSIZE` is not an aggregate filesystem quota. Darwin
+  does not support `RLIMIT_AS`, so this does not enforce a host process memory
+  cap. The caller still has to resolve and verify an app-trusted QEMU runtime.
+  Binary provenance, authenticated display/control transport, complete recovery, and
+  a usable `ComputerBackend` lifecycle remain incomplete.
 - Probe Intel versus Apple silicon host identity and HVF availability
   independently. Keep the backend unavailable if the result is unknown.
 - Use an architecture-matched signed guest image and the existing signed
