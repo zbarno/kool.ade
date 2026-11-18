@@ -107,7 +107,14 @@ fn read_json_line(
     let mut line = String::new();
     let bytes = (&mut *reader)
         .take((MAX_QMP_LINE_BYTES + 1) as u64)
-        .read_line(&mut line)?;
+        .read_line(&mut line)
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::WouldBlock && Instant::now() >= deadline {
+                io::Error::new(io::ErrorKind::TimedOut, "QMP command deadline elapsed")
+            } else {
+                error
+            }
+        })?;
     if bytes == 0 {
         return Err(io::Error::new(
             io::ErrorKind::UnexpectedEof,
@@ -232,7 +239,7 @@ mod tests {
                 .write_all(b"{\"return\":{},\"id\":1}\r\n")
                 .expect("write capabilities response");
             let _control = read_request(&mut server);
-            for _ in 0..20 {
+            for _ in 0..100 {
                 if writeln!(server.get_mut(), "{{\"event\":\"TICK\",\"id\":99}}").is_err() {
                     break;
                 }
@@ -244,11 +251,11 @@ mod tests {
         let error = execute_control_command_on_stream(
             client,
             MacOsQmpControlCommandV1::Pause,
-            Duration::from_millis(50),
+            Duration::from_millis(200),
         )
         .expect_err("unmatched events do not complete the control command");
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
-        assert!(started.elapsed() < Duration::from_millis(250));
+        assert!(started.elapsed() < Duration::from_millis(800));
         server.join().expect("QMP event fixture completed");
     }
 
