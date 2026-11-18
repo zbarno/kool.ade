@@ -99,6 +99,11 @@ pub(crate) fn probe_macos_hvf() -> MacOsHvfReadiness {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn probe_macos_hvf() -> MacOsHvfReadiness {
+    assess_macos_hvf(ComputerHostPlatformV1::current(), None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

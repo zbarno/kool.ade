@@ -17,6 +17,7 @@ const MAX_UNIX_SOCKET_PATH_BYTES: usize = 103;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct MacOsQemuLaunchPlanV1 {
+    pub(crate) platform: ComputerHostPlatformV1,
     pub(crate) executable: &'static str,
     pub(crate) arguments: Vec<OsString>,
     /// Guest RAM encoded into `arguments`; process launch derives its resource
@@ -160,6 +161,7 @@ pub(super) fn build_macos_qemu_launch_plan(
         "-no-reboot",
     ];
     Some(MacOsQemuLaunchPlanV1 {
+        platform,
         executable,
         arguments: raw.iter().map(OsString::from).collect(),
         memory_bytes: memory_mib * MIB,
