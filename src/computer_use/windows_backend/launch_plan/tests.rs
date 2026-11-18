@@ -72,8 +72,22 @@ fn qemu_args_use_whpx_bounded_resources_and_no_network_devices() {
     assert!(args.windows(2).any(|w| w == ["-accel", "whpx"]));
     assert!(args.windows(2).any(|w| w == ["-m", "1073741824"]));
     assert!(args.windows(2).any(|w| w == ["-nic", "none"]));
-    assert!(!args.iter().any(|arg| arg == "-netdev"));
-    assert!(!args.iter().any(|arg| arg.starts_with("tcp")));
+    for forbidden in ["-net", "-netdev", "-virtfs", "-fsdev", "-smb"] {
+        assert!(!args.iter().any(|arg| arg == forbidden), "{forbidden}");
+    }
+    assert!(!args.iter().any(|arg| arg.contains("hostfwd=")));
+    assert!(!args.iter().any(|arg| arg.starts_with("tcp:")));
+    assert!(!args.iter().any(|arg| arg.contains("host_path")));
+    assert_eq!(
+        args.iter()
+            .filter(|arg| arg.as_ref() == "-blockdev")
+            .count(),
+        1
+    );
+    assert!(
+        args.iter()
+            .any(|arg| arg.contains("C:/private/overlay.qcow2"))
+    );
     assert!(args.iter().any(|arg| {
         arg == "socket,id=guestcontrol,path=C:/private/transport/123e4567-e89b-12d3-a456-426614174000/guest-control-v1.sock,server=off"
     }));
