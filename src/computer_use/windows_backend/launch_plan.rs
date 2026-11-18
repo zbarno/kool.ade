@@ -62,6 +62,15 @@ pub(crate) struct WindowsWpxLaunchInput<'a> {
     pub(crate) network_disabled: bool,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct WindowsWpxLaunchContext<'a> {
+    pub(crate) host_machine_id: &'a str,
+    pub(crate) host_logical_processors: u16,
+    pub(crate) now_unix_ms: u64,
+    pub(crate) controller_key_id: &'a str,
+    pub(crate) controller_key: &'a ed25519_dalek::VerifyingKey,
+}
+
 impl WindowsWpxLaunchPlan {
     /// Builds only from controller-validated session and image objects. The
     /// caller must revalidate session authority, image trust, and overlay

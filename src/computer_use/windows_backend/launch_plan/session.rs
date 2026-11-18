@@ -1,6 +1,9 @@
 use std::path::Path;
 
-use super::{WindowsLaunchBlocker, WindowsWpxLaunchInput, WindowsWpxLaunchPlan, path};
+use super::{
+    WindowsLaunchBlocker, WindowsWpxLaunchContext, WindowsWpxLaunchInput, WindowsWpxLaunchPlan,
+    path,
+};
 use crate::computer_use::{ComputerHostPlatformV1, ComputerHypervisorV1, ComputerTargetV1};
 
 impl WindowsWpxLaunchPlan {
@@ -10,14 +13,14 @@ impl WindowsWpxLaunchPlan {
         storage: &super::super::storage::WindowsVmStorage,
         qemu_executable: &Path,
         boot_config: &Path,
-        host_machine_id: &str,
-        host_logical_processors: u16,
-        now_unix_ms: u64,
-        controller_key_id: &str,
-        controller_key: &ed25519_dalek::VerifyingKey,
+        context: WindowsWpxLaunchContext<'_>,
     ) -> Result<Self, WindowsLaunchBlocker> {
         session
-            .validate_for_host(now_unix_ms, controller_key_id, controller_key)
+            .validate_for_host(
+                context.now_unix_ms,
+                context.controller_key_id,
+                context.controller_key,
+            )
             .map_err(|_| WindowsLaunchBlocker::InvalidSession)?;
         if session.session_class != crate::computer_use::ComputerSessionClassV1::Disposable {
             return Err(WindowsLaunchBlocker::UnsupportedSessionClass);
@@ -27,7 +30,7 @@ impl WindowsWpxLaunchPlan {
             ComputerTargetV1::LocalVm {
                 machine_id,
                 hypervisor: ComputerHypervisorV1::QemuWhpx,
-            } if machine_id == host_machine_id
+            } if machine_id == context.host_machine_id
         ) || ComputerHostPlatformV1::current() != ComputerHostPlatformV1::WindowsX64
         {
             return Err(WindowsLaunchBlocker::UnsupportedTarget);
@@ -79,7 +82,7 @@ impl WindowsWpxLaunchPlan {
                     && session.policy.network_profile
                         == crate::computer_use::ComputerNetworkProfileV1::Disabled,
             },
-            host_logical_processors,
+            context.host_logical_processors,
         )?;
         for path in [qemu_executable, overlay.path(), boot_config] {
             path::validate_native_path_no_reparse(path)?;

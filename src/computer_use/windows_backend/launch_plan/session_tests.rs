@@ -101,11 +101,13 @@ fn launch_plan(
         storage,
         qemu,
         boot,
-        host_id,
-        8,
-        2,
-        KEY_ID,
-        &key.verifying_key(),
+        WindowsWpxLaunchContext {
+            host_machine_id: host_id,
+            host_logical_processors: 8,
+            now_unix_ms: 2,
+            controller_key_id: KEY_ID,
+            controller_key: &key.verifying_key(),
+        },
     )
 }
 
