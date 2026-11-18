@@ -1,6 +1,10 @@
 use std::path::Path;
 
-use super::{WindowsLaunchBlocker, WindowsWpxLaunchInput, WindowsWpxLaunchPlan, path};
+use super::{
+    WindowsLaunchBlocker, WindowsWpxLaunchContext, WindowsWpxLaunchInput, WindowsWpxLaunchPlan,
+    path,
+};
+use crate::computer_use::{ComputerHostPlatformV1, ComputerHypervisorV1, ComputerTargetV1};
 
 impl WindowsWpxLaunchPlan {
     pub(crate) fn from_authorized_session(
@@ -9,10 +13,27 @@ impl WindowsWpxLaunchPlan {
         storage: &super::super::storage::WindowsVmStorage,
         qemu_executable: &Path,
         boot_config: &Path,
-        host_logical_processors: u16,
+        context: WindowsWpxLaunchContext<'_>,
     ) -> Result<Self, WindowsLaunchBlocker> {
+        session
+            .validate_for_host(
+                context.now_unix_ms,
+                context.controller_key_id,
+                context.controller_key,
+            )
+            .map_err(|_| WindowsLaunchBlocker::InvalidSession)?;
         if session.session_class != crate::computer_use::ComputerSessionClassV1::Disposable {
             return Err(WindowsLaunchBlocker::UnsupportedSessionClass);
+        }
+        if !matches!(
+            &session.target,
+            ComputerTargetV1::LocalVm {
+                machine_id,
+                hypervisor: ComputerHypervisorV1::QemuWhpx,
+            } if machine_id == context.host_machine_id
+        ) || ComputerHostPlatformV1::current() != ComputerHostPlatformV1::WindowsX64
+        {
+            return Err(WindowsLaunchBlocker::UnsupportedTarget);
         }
         if session.network_profile != crate::computer_use::ComputerNetworkProfileV1::Disabled
             || session.policy.network_profile
@@ -24,6 +45,15 @@ impl WindowsWpxLaunchPlan {
             || !path::canonical_session_id(&session.identity.session_id)
         {
             return Err(WindowsLaunchBlocker::InvalidResourceBudget);
+        }
+        if overlay.session_id() != session.identity.session_id
+            || overlay.image_digest() != session.image_digest
+            || overlay.manifest_digest() != session.image_manifest_digest
+            || overlay.signer_key_id() != session.image_signer_key_id
+            || overlay.directory() != storage.overlay_root()
+            || overlay.path().parent() != Some(overlay.directory())
+        {
+            return Err(WindowsLaunchBlocker::InvalidOverlay);
         }
         let session_directory = storage
             .session_directory(&session.identity.session_id)
@@ -52,7 +82,7 @@ impl WindowsWpxLaunchPlan {
                     && session.policy.network_profile
                         == crate::computer_use::ComputerNetworkProfileV1::Disabled,
             },
-            host_logical_processors,
+            context.host_logical_processors,
         )?;
         for path in [qemu_executable, overlay.path(), boot_config] {
             path::validate_native_path_no_reparse(path)?;
@@ -73,3 +103,7 @@ impl WindowsWpxLaunchPlan {
         Ok(plan)
     }
 }
+
+#[cfg(test)]
+#[path = "session_tests.rs"]
+mod tests;

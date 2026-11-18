@@ -25,6 +25,7 @@ const QEMU_JOB_OVERHEAD_BYTES: u64 = 1024 * MIB;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum WindowsLaunchBlocker {
     InvalidSession,
+    UnsupportedTarget,
     UnsupportedSessionClass,
     NetworkNotDisabled,
     InvalidResourceBudget,
@@ -59,6 +60,15 @@ pub(crate) struct WindowsWpxLaunchInput<'a> {
     pub(crate) disk_bytes: u64,
     pub(crate) disposable_session: bool,
     pub(crate) network_disabled: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct WindowsWpxLaunchContext<'a> {
+    pub(crate) host_machine_id: &'a str,
+    pub(crate) host_logical_processors: u16,
+    pub(crate) now_unix_ms: u64,
+    pub(crate) controller_key_id: &'a str,
+    pub(crate) controller_key: &'a ed25519_dalek::VerifyingKey,
 }
 
 impl WindowsWpxLaunchPlan {
