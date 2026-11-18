@@ -256,9 +256,11 @@ class PublicationOrderingTests(unittest.TestCase):
         self.assertIn("    branches: [main]", push)
         self.assertIn('      - ".github/workflows/computer-use-image-promotion.yml"', push)
         self.assertIn('"$RUNNER_TEMP/verified-attestations.json"', promotion)
-        self.assertIn('"$RUNNER_TEMP/verified-attestations.json"', promotion.split("gh release create", 1)[1])
-        self.assertIn('"$RUNNER_TEMP/release/verified-attestations.json"', publisher)
-        self.assertIn('sha256sum "$RUNNER_TEMP/release/verified-attestations.json"', publisher)
+        self.assertIn('"$RUNNER_TEMP/promotion/verified-attestations-"*.json',
+                      promotion.split("gh release create", 1)[1])
+        self.assertIn('"$RUNNER_TEMP/release"', publisher)
+        self.assertIn("verify-release-assets", promotion)
+        self.assertIn("verify-release-assets", publisher)
 
 
 class EvidenceTests(unittest.TestCase):
