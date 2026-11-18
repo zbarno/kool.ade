@@ -22,8 +22,14 @@ pub(crate) struct WindowsWpxReadiness {
 }
 
 #[cfg(any(target_os = "windows", test))]
+mod backend;
+#[cfg(any(target_os = "windows", test))]
 #[allow(dead_code)] // Kept fail-closed until a fully contained backend consumes these plans.
 mod launch_plan;
+#[cfg(any(target_os = "windows", test))]
+#[allow(unused_imports)]
+// Exposed for the future host-target selector; this adapter stays gated.
+pub(crate) use backend::WindowsComputerBackend;
 #[cfg(target_os = "windows")]
 mod storage;
 #[cfg(any(target_os = "windows", test))]
