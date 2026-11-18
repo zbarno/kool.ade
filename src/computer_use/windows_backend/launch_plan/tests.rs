@@ -1,4 +1,7 @@
-use super::path::{canonical_session_id, qemu_args, qemu_option_path, validate_qemu_path};
+use super::path::{
+    canonical_session_id, contains_ambiguous_windows_component, qemu_args, qemu_option_path,
+    validate_qemu_path,
+};
 use super::*;
 
 #[test]
@@ -19,6 +22,26 @@ fn qemu_option_paths_reject_delimiter_injection_and_relative_paths() {
         validate_qemu_path(Path::new("C:/VMs/NUL.qcow2")),
         Err(WindowsLaunchBlocker::UnsafePath)
     );
+}
+
+#[test]
+fn qemu_paths_reject_windows_ads_and_normalized_component_aliases() {
+    for path in [
+        "C:/VMs/qemu.exe:payload",
+        "C:/VMs/directory./qemu.exe",
+        "C:/VMs/directory /qemu.exe",
+    ] {
+        assert!(
+            contains_ambiguous_windows_component(Path::new(path)),
+            "{path}"
+        );
+    }
+    assert!(!contains_ambiguous_windows_component(Path::new(
+        "C:/Program Files/Koolade/qemu-system-x86_64.exe"
+    )));
+    assert!(!contains_ambiguous_windows_component(Path::new(
+        "\\\\server\\share\\qemu.exe"
+    )));
 }
 
 #[test]

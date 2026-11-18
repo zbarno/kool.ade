@@ -86,10 +86,32 @@ pub(super) fn qemu_option_path(path: &Path) -> Result<String, WindowsLaunchBlock
 }
 
 pub(super) fn validate_qemu_path(path: &Path) -> Result<(), WindowsLaunchBlocker> {
-    if !path.is_absolute() || contains_dot_component(path) || contains_reserved_component(path) {
+    if !path.is_absolute()
+        || contains_dot_component(path)
+        || contains_reserved_component(path)
+        || contains_ambiguous_windows_component(path)
+    {
         return Err(WindowsLaunchBlocker::UnsafePath);
     }
     qemu_option_path(path).map(|_| ())
+}
+
+pub(super) fn contains_ambiguous_windows_component(path: &Path) -> bool {
+    let Some(value) = path.to_str() else {
+        return true;
+    };
+    let mut offset = 0;
+    for component in value.split(['/', '\\']) {
+        let drive_prefix = offset == 0
+            && component.len() == 2
+            && component.as_bytes()[0].is_ascii_alphabetic()
+            && component.as_bytes()[1] == b':';
+        if (!drive_prefix && component.contains(':')) || component.ends_with([' ', '.']) {
+            return true;
+        }
+        offset += component.len() + 1;
+    }
+    false
 }
 
 fn contains_dot_component(path: &Path) -> bool {
