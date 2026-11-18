@@ -77,20 +77,19 @@ impl ComputerUseMcpOperationsV1 for ComputerUseMcpControllerV1 {
                 ),
             ));
         };
-        if runtime.backend.probe().map_or(true, |probe| {
-            !probe.linux_host
-                || !probe.kvm_accessible
-                || !probe.qemu_available
-                || !probe.delegated_resource_controls
-        }) || runtime
-            .cache
-            .verify_cached_catalog_image(
-                &runtime.manifest_bytes,
-                &runtime.trust,
-                &runtime.generation_floor,
-                crate::computer_use::guest_image::ComputerGuestArchitectureV1::X86_64,
-            )
-            .is_err()
+        if runtime
+            .backend
+            .probe()
+            .map_or(true, |probe| !probe.supports_target(&runtime.target))
+            || runtime
+                .cache
+                .verify_cached_catalog_image(
+                    &runtime.manifest_bytes,
+                    &runtime.trust,
+                    &runtime.generation_floor,
+                    runtime.image.entry().architecture,
+                )
+                .is_err()
         {
             return Err(Box::new(
                 self.blocked("trusted_runtime_or_image_unavailable"),

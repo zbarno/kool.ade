@@ -167,7 +167,7 @@ impl<P: ComputerRemoteWorkerOverlayProviderV1> ComputerRemoteWorkerRuntimeV1
                 crate::computer_use::COMPUTER_USE_REMOTE_WORKER_PROTOCOL_VERSION_V1,
             guest_protocol_version: crate::computer_use::guest_protocol::GUEST_PROTOCOL_VERSION_V1,
             observed_at_unix_ms: now_unix_ms()?,
-            cpu_virtualization_available: probe.kvm_accessible,
+            cpu_virtualization_available: probe.hypervisor_accessible,
             image_digests: self.config.trusted_image_digests.iter().cloned().collect(),
             display_streaming_available: true,
             cpu_millis: u32::from(probe.max_vcpus).saturating_mul(1_000),

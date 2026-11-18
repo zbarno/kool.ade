@@ -5,8 +5,7 @@ impl ComputerBackend for RemoteComputerBackendV1 {
         let advertisement = self.fetch_advertisement()?;
         Ok(ComputerBackendProbeV1 {
             host_platform: None,
-            linux_host: true,
-            kvm_accessible: advertisement.cpu_virtualization_available,
+            hypervisor_accessible: advertisement.cpu_virtualization_available,
             qemu_available: true,
             delegated_resource_controls: true,
             max_vcpus: (advertisement.cpu_millis / 1_000).min(u32::from(u16::MAX)) as u16,

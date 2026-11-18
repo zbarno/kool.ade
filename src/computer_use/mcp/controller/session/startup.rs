@@ -133,7 +133,7 @@ pub(super) fn start_granted_session(
             &runtime.manifest_bytes,
             &runtime.trust,
             &runtime.generation_floor,
-            crate::computer_use::guest_image::ComputerGuestArchitectureV1::X86_64,
+            runtime.image.entry().architecture,
         )
         .map_err(|_| "trusted_image_unavailable")?;
     if image.entry().image_digest != runtime.image.entry().image_digest
@@ -167,8 +167,7 @@ pub(super) fn start_granted_session(
             manifest_bytes: &runtime.manifest_bytes,
             trust: &runtime.trust,
             session: &session,
-            expected_architecture:
-                crate::computer_use::guest_image::ComputerGuestArchitectureV1::X86_64,
+            expected_architecture: runtime.image.entry().architecture,
             controller_key_id: &runtime.controller_key_id,
             controller_key: &runtime.controller_key.verifying_key(),
             generation_floor: &runtime.generation_floor,

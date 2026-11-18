@@ -1,6 +1,7 @@
 # Computer Use host adapter design
 
-Status: implementation design with offline macOS QEMU/HVF planning, private
+Status: implementation design with target-aware controller readiness and
+signed guest architecture selection, offline macOS QEMU/HVF planning, private
 per-user VM storage, and a fail-closed Windows AF_UNIX guest-control transport
 candidate.
 macOS and Windows host virtualization remain unavailable. The launch planner
@@ -40,6 +41,13 @@ the signed session, lease generation, image catalog, guest handshake, action
 journal, evidence ownership, and user takeover checks. No platform adapter may
 accept model-provided paths, executable arguments, socket addresses, or
 hypervisor controls.
+
+The shared controller now validates a backend probe against the requested
+hypervisor and host identity before accepting sessions. It selects x86_64
+images for Intel macOS and Windows x64, and an aarch64 image for Apple silicon;
+the image must still be present in the signed catalog. Remote worker sessions
+remain x86_64 until their protocol advertises guest architecture. This routing
+does not implement or enable the macOS or Windows lifecycle adapters.
 
 Each session must have an app-owned private directory, a bounded disk overlay,
 bounded memory and CPU, and a process or VM containment object whose lifetime

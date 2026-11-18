@@ -172,20 +172,16 @@ impl ComputerUseMcpControllerV1 {
             .backend
             .probe()
             .map_err(|_| "trusted_runtime_unavailable")?;
-        if !probe.linux_host
-            || !probe.kvm_accessible
-            || !probe.qemu_available
-            || !probe.delegated_resource_controls
-        {
-            return Err("trusted_runtime_unavailable");
-        }
+        let guest_architecture = probe
+            .guest_architecture_for(&config.target)
+            .ok_or("trusted_runtime_unavailable")?;
         let image = config
             .cache
             .verify_cached_catalog_image(
                 &config.manifest_bytes,
                 &config.trust,
                 &config.generation_floor,
-                crate::computer_use::guest_image::ComputerGuestArchitectureV1::X86_64,
+                guest_architecture,
             )
             .map_err(|_| "trusted_image_unavailable")?;
         let (application_catalog, application_catalog_status) =
