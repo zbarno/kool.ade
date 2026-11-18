@@ -71,10 +71,7 @@ pub(super) fn append_findings(
     }
     snapshot
         .findings
-        .extend(findings::build_with_guest_image_state(
-            facts,
-            image_probe.state,
-        ));
+        .extend(findings::build_for_host(host, facts, image_probe.state));
     snapshot
         .findings
         .sort_by(|left, right| left.id.cmp(&right.id));
