@@ -8,6 +8,7 @@ pub(crate) mod image_extension;
 pub mod images;
 pub mod prerequisites;
 mod private_storage;
+pub mod probe_battery;
 pub mod provider_preflight;
 pub mod provider_session;
 pub mod qa_container;
