@@ -14,6 +14,7 @@
 - [computer-use-r1-acceptance.md](./computer-use-r1-acceptance.md) - Read for Computer Use R1 offline acceptance infrastructure.
 - [computer-use-readiness-v1.md](./computer-use-readiness-v1.md) - Read for Computer Use readiness probe boundary (v1).
 - [computer-use-release-evidence.md](./computer-use-release-evidence.md) - Read for Computer Use cross-tier release evidence.
+- [computer-use-runtime-manifest-v1.md](./computer-use-runtime-manifest-v1.md) - Read for Computer Use signed runtime manifest and offline ops tool (v1).
 - [computer-use-remote-workers-v1.md](./computer-use-remote-workers-v1.md) - Read for Remote Computer Use workers (v1).
 - [computer-use-threat-model-v1.md](./computer-use-threat-model-v1.md) - Read for Computer Use threat model (v1).
 - [docker-cutover-checklist.md](./docker-cutover-checklist.md) - Read for Docker cutover and release checklist.

@@ -35,6 +35,10 @@ path = "src/bin/koolade_computer_use_agent.rs"
 name = "computer-use-image-promotion"
 path = "src/bin/computer_use_image_promotion.rs"
 
+[[bin]]
+name = "computer-use-runtime-manifest"
+path = "src/bin/computer_use_runtime_manifest.rs"
+
 [lib]
 name = "koolade"
 path = "src/lib.rs"

@@ -30,6 +30,7 @@ pub(crate) mod macos_backend;
 pub(crate) mod process_security;
 pub(crate) mod release_gates;
 pub mod remote_worker;
+pub mod runtime_manifest;
 #[cfg(any(target_os = "windows", test))]
 pub(crate) mod windows_backend;
 
