@@ -273,7 +273,9 @@ fn tampering_after_signing_breaks_the_signature() {
         }),
         ("generation", |manifest| manifest.generation += 1),
         ("release version", |manifest| {
-            manifest.release_version.push('+')
+            // An allowed charset char keeps the case in the signature lane;
+            // disallowed glyphs are caught earlier by the header rules.
+            manifest.release_version.push('x')
         }),
         ("expiry", |manifest| manifest.expires_at_unix_ms += 1),
         ("artifact identity", |manifest| {
@@ -352,6 +354,16 @@ fn expired_and_below_floor_envelopes_fail_closed() {
         Err(RuntimeManifestErrorV1::Expired)
     ));
 
+    // Issuance dated ahead of the caller's clock is refused before expiry
+    // is even consulted, mirroring the guest-image catalog rule.
+    let future = signed_manifest(|manifest| {
+        manifest.issued_at_unix_ms = NOW + 60_000;
+    });
+    assert!(matches!(
+        verify_runtime_manifest(encoded(&future).as_slice(), &trust, NOW),
+        Err(RuntimeManifestErrorV1::InvalidHeader)
+    ));
+
     let just_alive = signed_manifest(|manifest| {
         manifest.expires_at_unix_ms = NOW + 1;
     });
@@ -408,6 +420,18 @@ fn header_rules_are_enforced() {
     reject(
         |manifest| manifest.release_version = "..leading".to_owned(),
         "malformed release version",
+    );
+    reject(
+        |manifest| manifest.release_version = "2026.11.18-rc 1".to_owned(),
+        "space in release version",
+    );
+    reject(
+        |manifest| manifest.release_version = "2026-11.18.".to_owned(),
+        "trailing dot in release version",
+    );
+    reject(
+        |manifest| manifest.release_version = "\u{3b2}eta".to_owned(),
+        "non-ascii release version",
     );
     reject(
         |manifest| manifest.release_version.clear(),

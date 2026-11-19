@@ -72,6 +72,10 @@ pub(super) fn is_release_tag(value: &str) -> bool {
         && bytes.len() <= 64
         && !value.contains("..")
         && (bytes[0].is_ascii_lowercase() || bytes[0].is_ascii_digit())
+        && (bytes[bytes.len() - 1].is_ascii_lowercase() || bytes[bytes.len() - 1].is_ascii_digit())
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"-._".contains(byte))
 }
 
 pub(super) fn is_signature_hex(value: &str) -> bool {
@@ -88,10 +92,18 @@ pub(super) fn decode_lower_hex(value: &str) -> Result<Vec<u8>, ()> {
     let (pairs, rest) = value.as_bytes().as_chunks::<2>();
     debug_assert!(rest.is_empty());
     let mut decoded = Vec::with_capacity(pairs.len());
+    let digit = |byte: u8| -> Option<u8> {
+        match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            _ => None,
+        }
+    };
     for pair in pairs {
-        let hi = (pair[0] as char).to_digit(16).ok_or(())? as u8;
-        let lo = (pair[1] as char).to_digit(16).ok_or(())? as u8;
-        decoded.push(hi << 4 | lo);
+        let (Some(high), Some(low)) = (digit(pair[0]), digit(pair[1])) else {
+            return Err(());
+        };
+        decoded.push(high << 4 | low);
     }
     Ok(decoded)
 }
