@@ -12,8 +12,11 @@
 #   1. Ops publishes this image to the approved registry.
 #   2. Obtain the authentic digest from the registry (NOT a locally computed
 #      guess) for linux/amd64 and linux/arm64.
-#   3. Extend the image lock schema/profile (requires a deliberate, reviewed
-#      change to images/mod.rs REQUIRED_PROFILES handling).
+#   3. Extend the image lock profile set via a deliberate, reviewed change:
+#      new profile entries in containers/images.lock.json plus the loaders
+#      that consult them (ImageLock::select in src/execution/docker/images.rs
+#      and the required-image-profile catalog, see setup_attention scans and
+#      the persistence/setup_tasks `required_image_profiles` store fields).
 #   4. Wire ProviderContainerSpec through ProviderExecutorPort with the
 #      pinned reference + digest.
 FROM gcr.io/distroless/base-debian12@sha256:__PENDING_AUTHENTIC_DIGEST__
