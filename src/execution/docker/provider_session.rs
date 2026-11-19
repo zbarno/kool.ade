@@ -35,13 +35,17 @@ pub const DENIED_HOST_MOUNT_SOURCES: &[&str] = &[
     "/boot",
     "/proc",
     "/proc/sys",
+    "/sys",
     "/root",
     "/home",
+    "/mnt",
+    "/media",
     "/run",
     "/var/run",
     "/var/run/docker.sock",
     "/var/run/containerd.sock",
     "/var/lib/docker",
+    "/var/lib/containerd",
 ];
 
 /// Whitelisted tmpfs destinations. Nothing else may be tmp-mounted.
@@ -58,13 +62,21 @@ pub enum ProviderSessionError {
     /// A proposed tmpfs destination is not whitelisted.
     DisallowedTmpfsDestination(String),
     /// Proposed container name violates the ownership prefix.
+    /// A whitelisted tmpfs destination was requested with zero size.
+    InvalidTmpfsSize(String),
     InvalidContainerName(String),
     /// The session tried to manage a container it does not own.
     OwnershipMismatch,
     /// Exec requested before a container is known-started.
     ExecBeforeStart,
     /// Termination ran but the container has not verifiably disappeared.
+    /// Container survived termination: a verified-absent gate failed.
     TerminatedWithResidue(String),
+    /// Engine terminate call errored while the container still presented.
+    TerminateFailed {
+        name: String,
+        cause: String,
+    },
     /// Pinned image reference/digest failed format validation.
     InvalidImagePin(String),
 }
@@ -81,6 +93,9 @@ impl std::fmt::Display for ProviderSessionError {
             ProviderSessionError::DisallowedTmpfsDestination(dest) => {
                 format!("tmpfs destination {dest} is not whitelisted for provider containers")
             }
+            ProviderSessionError::InvalidTmpfsSize(dest) => {
+                format!("tmpfs size for whitelisted destination {dest} must be nonzero")
+            }
             ProviderSessionError::InvalidContainerName(name) => format!(
                 "container name {name:?} violates the {} ownership prefix",
                 SESSION_NAME_PREFIX
@@ -94,6 +109,9 @@ impl std::fmt::Display for ProviderSessionError {
             ProviderSessionError::TerminatedWithResidue(name) => {
                 format!("container {name} did not verifiably disappear after termination")
             }
+            ProviderSessionError::TerminateFailed { name, cause } => format!(
+                "terminate call failed for {name} while it still presented (cause: {cause})"
+            ),
             ProviderSessionError::InvalidImagePin(detail) => {
                 format!("provider image pin rejected: {detail}")
             }
@@ -117,9 +135,11 @@ pub enum MountKind {
     TmpfsScratch { size_bytes: u64 },
 }
 
-/// Fully validated, immutable container spec. Constructible only through
+/// Fully validated, immutable container spec. Produced by
 /// [`ProviderSpecBuilder::build`], which pins every unsafe knob to the
-/// compile-time constants above.
+/// compile-time constants above. Fields are `pub` for the upcoming executor
+/// port slice; tightening them to private accessors lands WITH the wiring
+/// slice so the builder remains the only construction path in practice.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProviderContainerSpec {
     pub image_reference: String,
@@ -197,7 +217,7 @@ pub fn validate_tmpfs_destination(destination: &str) -> Result<(), ProviderSessi
 
 /// Builds [`ProviderContainerSpec`] values. All safety knobs are fixed to
 /// the module constants; the builder cannot express weaker settings.
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ProviderSpecBuilder {
     image_reference: String,
     image_digest: String,
@@ -206,6 +226,8 @@ pub struct ProviderSpecBuilder {
 }
 
 impl ProviderSpecBuilder {
+    /// Starts a builder for the given (reference, digest) image pin. Pin
+    /// FORM is validated here; pin AUTHORIZATION happens later via the lock.
     pub fn new(image_reference: impl Into<String>, image_digest: impl Into<String>) -> Self {
         Self {
             image_reference: image_reference.into(),
@@ -214,6 +236,7 @@ impl ProviderSpecBuilder {
         }
     }
 
+    /// Sets the (prefix-required) container name; validated at `build()`.
     pub fn container_name(mut self, name: impl Into<String>) -> Self {
         self.container_name = name.into();
         self
@@ -229,7 +252,7 @@ impl ProviderSpecBuilder {
     ) -> Result<Self, ProviderSessionError> {
         validate_tmpfs_destination(destination)?;
         if size_bytes == 0 {
-            return Err(ProviderSessionError::DisallowedTmpfsDestination(
+            return Err(ProviderSessionError::InvalidTmpfsSize(
                 destination.to_string(),
             ));
         }
@@ -241,11 +264,15 @@ impl ProviderSpecBuilder {
         Ok(Self { mounts, ..self })
     }
 
+    /// Validates the accumulated state and seals the spec. All limits
+    /// resolve to the module constants; the caller cannot weaken them.
     pub fn build(self) -> Result<ProviderContainerSpec, ProviderSessionError> {
         let name = self.container_name;
         if !name.starts_with(SESSION_NAME_PREFIX) {
             return Err(ProviderSessionError::InvalidContainerName(name));
         }
+        // Conservative cap aligned to common identifier limits (Docker
+        // allows 255; we keep names short for logs and labels).
         if name.len() > 63 {
             return Err(ProviderSessionError::InvalidContainerName(name));
         }
@@ -307,7 +334,12 @@ pub fn validate_image_pin(
     }
     let repo_part = match reference.rsplit_once('@') {
         Some((repo, embedded_digest)) => {
-            if embedded_digest != hash_hex {
+            // The lock's canonical form embeds the SCHEMED digest
+            // (`repo@sha256:<hex>`); normalize before comparing.
+            let embedded_bare = embedded_digest
+                .strip_prefix("sha256:")
+                .unwrap_or(embedded_digest);
+            if embedded_bare != hash_hex {
                 return Err(rej("embedded digest differs from the pinned digest"));
             }
             repo
@@ -425,7 +457,10 @@ pub fn terminate_then_cleanup(
             return Err(if matches!(err, ProviderSessionError::ImageNotPinned) {
                 err
             } else {
-                ProviderSessionError::TerminatedWithResidue(name.to_string())
+                ProviderSessionError::TerminateFailed {
+                    name: name.to_string(),
+                    cause: err.to_string(),
+                }
             });
         }
     }
@@ -460,6 +495,7 @@ mod tests {
         calls: RefCell<Vec<&'static str>>,
         present: RefCell<bool>,
         fail_remove: bool,
+        fail_terminate: bool,
     }
     impl MockPort {
         fn track_present(self) -> Self {
@@ -481,6 +517,12 @@ mod tests {
         }
         fn terminate(&mut self, _: &str) -> Result<(), ProviderSessionError> {
             self.calls.borrow_mut().push("terminate");
+            if self.fail_terminate {
+                // Engine call faults; the mock still presents afterward.
+                return Err(ProviderSessionError::TerminatedWithResidue(
+                    "simulated terminate fault".into(),
+                ));
+            }
             *self.present.borrow_mut() = false;
             Ok(())
         }
@@ -574,6 +616,9 @@ mod tests {
             "/var/lib/docker/a/containerd-root",
             "/root",
             "/",
+            "/sys",
+            "/sys/firmware",
+            "/media/usb",
         ] {
             assert!(
                 validate_host_mount_source(source).is_err(),
@@ -720,5 +765,49 @@ mod tests {
             self.calls.push("remove");
             Ok(())
         }
+    }
+
+    #[test]
+    fn tmpfs_zero_size_reports_a_distinct_invalid_size_error() {
+        let err = ProviderSpecBuilder::new("img", "sha256:x")
+            .add_scratch_tmpfs("/tmp", 0)
+            .expect_err("zero size rejected");
+        assert!(matches!(
+            err,
+            ProviderSessionError::InvalidTmpfsSize(ref d) if d.as_str() == "/tmp"
+        ));
+    }
+
+    #[test]
+    fn terminate_engine_fault_reports_failed_with_carried_cause() {
+        let mut port = MockPort {
+            fail_terminate: true,
+            ..Default::default()
+        };
+        *port.present.borrow_mut() = true;
+        let n = name("faultbox");
+        let err = terminate_then_cleanup(&mut port, &n).expect_err("fault surfaces");
+        match err {
+            ProviderSessionError::TerminateFailed { name: ename, cause } => {
+                assert_eq!(ename, n);
+                assert!(cause.contains("simulate"), "cause carried: {cause}");
+            }
+            other => panic!("expected TerminateFailed, got {other:?}"),
+        }
+        let log = port.call_log();
+        assert!(log.contains(&"terminate"));
+        assert!(!log.contains(&"remove"), "no remove after terminate fault");
+    }
+
+    #[test]
+    fn lock_form_canonical_pins_pass_validation() {
+        // Exact shape used by containers/images.lock.json:
+        // `repository@sha256:<hex>` with the SCHEME embedded.
+        let d64 = "a".repeat(64);
+        let ref_pin = format!("docker.io/library/debian@sha256:{d64}");
+        assert!(
+            validate_image_pin(&ref_pin, &format!("sha256:{d64}")).is_ok(),
+            "canonical lock form must be accepted"
+        );
     }
 }
