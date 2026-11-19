@@ -299,6 +299,14 @@ reviewable PR against this document, with the corresponding evidence rung
 turning on only inside that PR.
 
 1. **Phase 1 (this document)**: threat model + strategy; merged design.
+   Phase-2 status: the preflight evaluator landed in PR #714 and the
+   `ProviderRuntimeSession` foundation in `provider_session.rs` shipped with
+   this PR: sealed immutable specs (fixed budgets, prefix-named containers,
+   digest-only pin validation, host-mount denial, tmpfs allowlist), the
+   executor port, and fail-closed staged teardown gated on a
+   verified-absent observation. The `containers/provider-runtime/` recipe is
+   an intentional unpinned placeholder; wire-up follows the promotion flow
+   documented there. Probe-battery scaffolding still rides in this phase.
 2. **Phase 2 — containment foundation**: `ProviderRuntimeSession` skeleton;
    preflight for rootless Docker adequacy; pinned provider runtime image
    recipes (empty-shell first); probe battery scaffolding; teardown/kill
