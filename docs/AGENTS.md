@@ -9,13 +9,13 @@
 - [computer-use-architecture.md](./computer-use-architecture.md) - Read for Computer Use: architecture, permissions, and operating guide.
 - [computer-use-guest-apps-v1.md](./computer-use-guest-apps-v1.md) - Read for Computer Use guest application catalog and provisioning.
 - [computer-use-guest-images-v1.md](./computer-use-guest-images-v1.md) - Read for Computer Use guest image catalog and cache (CU-03).
-- [computer-use-host-adapters.md](./computer-use-host-adapters.md) - Read for candidate macOS and Windows Computer Use host adapters.
+- [computer-use-host-adapters.md](./computer-use-host-adapters.md) - Read for Computer Use host adapter design.
 - [computer-use-personal-auth-fixture-v1.md](./computer-use-personal-auth-fixture-v1.md) - Read for Personal VM synthetic authentication fixture v1.
 - [computer-use-r1-acceptance.md](./computer-use-r1-acceptance.md) - Read for Computer Use R1 offline acceptance infrastructure.
 - [computer-use-readiness-v1.md](./computer-use-readiness-v1.md) - Read for Computer Use readiness probe boundary (v1).
 - [computer-use-release-evidence.md](./computer-use-release-evidence.md) - Read for Computer Use cross-tier release evidence.
-- [computer-use-runtime-manifest-v1.md](./computer-use-runtime-manifest-v1.md) - Read for Computer Use signed runtime manifest and offline ops tool (v1).
 - [computer-use-remote-workers-v1.md](./computer-use-remote-workers-v1.md) - Read for Remote Computer Use workers (v1).
+- [computer-use-runtime-manifest-v1.md](./computer-use-runtime-manifest-v1.md) - Read for Computer Use runtime manifest v1.
 - [computer-use-threat-model-v1.md](./computer-use-threat-model-v1.md) - Read for Computer Use threat model (v1).
 - [docker-cutover-checklist.md](./docker-cutover-checklist.md) - Read for Docker cutover and release checklist.
 - [docker-engine-prerequisites.md](./docker-engine-prerequisites.md) - Read for Docker Engine prerequisites.
@@ -37,7 +37,7 @@
 - [planner-policy.md](./planner-policy.md) - Read for Planner policy.
 - [project-runtime-composition.md](./project-runtime-composition.md) - Read for Project-specific verified Docker runtimes.
 - [project-runtime-contract.md](./project-runtime-contract.md) - Read for Project runtime capability contract.
-- [provider-runtime-containment-v1.md](./provider-runtime-containment-v1.md) - Read for Provider runtime containment strategy and threat boundaries.
+- [provider-runtime-containment-v1.md](./provider-runtime-containment-v1.md) - Read for Provider runtime containment v1.
 - [remote-private-file-grant-protocol-v1.md](./remote-private-file-grant-protocol-v1.md) - Read for Remote private-file grant protocol v1.
 - [runtime-configuration.md](./runtime-configuration.md) - Read for Local configuration for verification.
 - [runtime-qa-contract.md](./runtime-qa-contract.md) - Read for Runtime QA records and gate.
@@ -49,8 +49,8 @@
 - [spec-reconciliation.md](./spec-reconciliation.md) - Read for Specification reconciliation records.
 - [task-conversations-progress.md](./task-conversations-progress.md) - Read for Task conversation acceptance audit.
 - [task-failure-diagnosis.md](./task-failure-diagnosis.md) - Read for Diagnosing interrupted task implementation.
-- [taskintent-action-model.md](./taskintent-action-model.md) - Read for the TaskIntent-first action model, plan-confirmation card lifecycle, and decision-surface inventory.
-- [taskintent-liveness.md](./taskintent-liveness.md) - Read for TaskIntent forward-progress mechanisms, transition ownership, and known liveness gaps.
+- [taskintent-action-model.md](./taskintent-action-model.md) - Read for TaskIntent-first action model: plan confirmation and decision surfaces.
+- [taskintent-liveness.md](./taskintent-liveness.md) - Read for TaskIntent forward progress and recovery.
 - [ui-polish-review.md](./ui-polish-review.md) - Read for Workspace UI review.
 - [welcome-onboarding-acceptance.md](./welcome-onboarding-acceptance.md) - Read for Welcome workspace setup acceptance.
 - [welcome-onboarding-usability.md](./welcome-onboarding-usability.md) - Read for Welcome and connect manual validation.

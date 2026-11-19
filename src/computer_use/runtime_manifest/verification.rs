@@ -133,6 +133,11 @@ pub fn verify_runtime_manifest(
     let manifest: RuntimeManifestV1 =
         serde_json::from_slice(bytes).map_err(|_| RuntimeManifestErrorV1::DecodeFailed)?;
     manifest.validate()?;
+    // A leaked envelope dated into the future is refused outright, mirroring
+    // the guest-image catalog's issuance rule.
+    if manifest.issued_at_unix_ms > now_unix_ms {
+        return Err(RuntimeManifestErrorV1::InvalidHeader);
+    }
     if now_unix_ms >= manifest.expires_at_unix_ms {
         return Err(RuntimeManifestErrorV1::Expired);
     }

@@ -48,7 +48,7 @@ included) into the manifest digest that receipts record as provenance.
 
 Verification (`verify_runtime_manifest`) is the only admission path and
 enforces: size bound, strict decode, header/artifact rules, uniqueness of
-`(artifactId)` and `(platform, path)`, expiry against caller-provided host
+`(artifactId)` and `(platform, path)`, refusal of future-dated issuance, expiry against caller-provided host
 time, the pinned-trust minimum-generation floor, known-signer lookup, and
 Ed25519 verification against app-pinned keys
 (`RuntimeManifestTrustV1::from_application_pinned_keys`). Nothing in the

@@ -42,6 +42,11 @@ pub(super) fn run() -> anyhow::Result<()> {
             manifest.issued_at_unix_ms = parse_positive_u64(&issued_at, "ISSUED_MS")?;
             manifest.expires_at_unix_ms = parse_positive_u64(&expires_at, "EXPIRES_MS")?;
             manifest.signer_key_id = key_id;
+            // Refuse to seal envelopes that would not survive verification;
+            // admission authority stays with the verifier either way.
+            manifest
+                .validate()
+                .with_context(|| "template must satisfy the runtime manifest validation rules")?;
             let signature = signing_key.sign(&manifest.signing_payload_bytes()?);
             manifest.signature_hex = hex_encode(&signature.to_bytes());
             let mut rendered = serde_json::to_vec_pretty(&manifest)?;
