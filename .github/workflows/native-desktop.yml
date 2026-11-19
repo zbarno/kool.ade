@@ -125,6 +125,15 @@ jobs:
           KOOLADE_WINDOWS_SETUP_PUBLISHER: ''
         run: cargo +1.98.1 build --locked --release --bin koolade 2>&1 | tee dist/native/build.log
 
+      - name: Build the bundled runtime manifest gate tool
+        if: matrix.package == 'macos'
+        shell: bash
+        # Enables scripts/package-macos-dmg.sh to admit shipped QEMU resources
+        # only when they carry a manifest under the application-pinned trust.
+        run: |
+          set -euo pipefail
+          cargo +1.98.1 build --locked --release --bin computer-use-runtime-manifest 2>&1 | tee -a dist/native/build.log
+
       - name: Smoke-check the native executable
         shell: bash
         run: |

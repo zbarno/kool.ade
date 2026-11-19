@@ -2,11 +2,13 @@
 
 Status: implemented behind the app library as
 `computer_use::runtime_manifest`, plus an offline ops binary
-`computer-use-runtime-manifest`. No release ships a signed runtime manifest
-yet, and no Linux adapter consumes one; the consuming reader today is the
-bundled macOS QEMU receipt path. Packaging signed manifests into release
-artifacts, Windows consumption, and a dedicated runtime signer key remain
-open work under #395.
+`computer-use-runtime-manifest`. The macOS packager enforces the
+application-pinned trust gate for bundled runtime resources, but no release
+ships a signed runtime manifest yet and no Linux adapter consumes one; the
+consuming reader today is the bundled macOS QEMU receipt path. Shipping a
+signed manifest in a release (provisioned, attested QEMU plus the
+repository signing secret), Windows consumption, and a dedicated runtime
+signer key remain open work under #395.
 
 The runtime manifest is the signed, app-pinned authorization document that
 lets a host adapter trust specific runtime artifacts (such as the bundled
@@ -68,7 +70,7 @@ empty canonical path and therefore have no artifacts resolvable through it.
 
 ## Offline ops tool
 
-`cargo run --bin computer-use-runtime-manifest` provides three commands:
+`cargo run --bin computer-use-runtime-manifest` provides four commands:
 
 - `sign RELEASE_VERSION GENERATION ISSUED_MS EXPIRES_MS KEY_ID
   TEMPLATE_JSON OUTPUT_JSON` — reads a 32-byte Ed25519 seed as hex from
@@ -78,6 +80,10 @@ empty canonical path and therefore have no artifacts resolvable through it.
 - `verify BUNDLE_ROOT_DIR PIN_JSON NOW_MS` — loads the fixed-name bundled
   manifest and verifies it under the trust pin. Emits the bound digest,
   release, generation, signer, expiry, and artifact summary on success.
+- `verify-pinned BUNDLE_ROOT_DIR` — verifies the fixed-name bundled manifest
+  against THIS build's application-pinned trust (no operator pin involved).
+  Absence of the manifest is a refusal, never a pass. This is the
+  machine-checkable half of the shipped bundle resource gate below.
 - `inspect FILE` — pretty-printed passthrough for operators.
 
 The trust pin is explicit operator-selected JSON:
@@ -100,3 +106,22 @@ under the distinct runtime signer key ID
 `9b1c6e04-7a2f-4f3d-bc5b-2d4e6f8a0c1e`; domain tagging provides the
 cryptographic separation. Key rotation raises the generation floor; old
 generations fail closed after the floor moves past them.
+
+## Shipped bundle resource gate
+
+Because the repository never holds the pinned key seed, a bundle resource
+that satisfies `verify-pinned` is the only kind of QEMU staging a packager
+may embed. `scripts/package-macos-dmg.sh` exposes exactly this seam: with
+`KOOADE_BUNDLED_RUNTIME_DIR` set, it runs `verify-pinned` over the staging
+directory (layout: the fixed-name manifest at the top level beside the
+`qemu/` subtree it describes), stages the admitted subtree into the app
+`Resources`, and appends the verification transcript to the package
+inspection log; any failure aborts packaging before an artifact is ever
+cut. With the variable unset, packaging behaves exactly as before and the
+resulting app carries no bundled runtime resources — which is a truthful
+statement about what that release certifies.
+
+Consequences kept deliberately sharp: CI cannot mint an admissible manifest
+(the secret lives only with the promotion pipeline), a repackaged manifest
+breaks the signature and the digest both, and the app-side reader still
+fails closed independently of whatever a packager believed.

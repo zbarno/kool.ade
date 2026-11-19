@@ -68,3 +68,96 @@ fn argument_collection_counts_positionals_exactly() {
     assert!(super::collect_args::<2>("one".split_whitespace().map(str::to_owned)).is_err());
     assert!(super::collect_args::<1>("a b".split_whitespace().map(str::to_owned)).is_err());
 }
+
+#[test]
+fn verify_pinned_refuses_absence_garbage_and_external_signatures() {
+    use ed25519_dalek::{Signer, SigningKey};
+
+    let lowercase_hex = |bytes: &[u8]| -> String {
+        let mut rendered = String::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            rendered.push_str(&format!("{byte:02x}"));
+        }
+        rendered
+    };
+
+    use koolade::computer_use::runtime_manifest::{
+        BUNDLED_RUNTIME_MANIFEST_FILENAME, RuntimeManifestV1,
+    };
+    use sha2::{Digest, Sha256};
+
+    // Absence of the fixed-name manifest is a refusal, not a pass-through.
+    let empty = tempfile::TempDir::new().unwrap();
+    let absent_error = super::verify_pinned_bundle(empty.path()).err().unwrap();
+    assert!(
+        absent_error
+            .to_string()
+            .contains(BUNDLED_RUNTIME_MANIFEST_FILENAME),
+        "{absent_error:?}"
+    );
+
+    // Garbage in the fixed slot is a refusal.
+    let garbage = tempfile::TempDir::new().unwrap();
+    std::fs::write(
+        garbage.path().join(BUNDLED_RUNTIME_MANIFEST_FILENAME),
+        "not json",
+    )
+    .unwrap();
+    let garbage_error = super::verify_pinned_bundle(garbage.path()).err().unwrap();
+    assert!(
+        garbage_error.to_string().contains("DecodeFailed"),
+        "{garbage_error:?}"
+    );
+
+    // Impersonates the application-pinned signer KEY ID with an externally
+    // generated key: the envelope must trip signature verification, proving
+    // the pinned public key (held as a repository secret, not in this code)
+    // is what admits manifests. This is the strongest positive-control lane
+    // CI can run; happy-path admission happens only inside the promotion
+    // pipeline that holds the secret.
+    let resources = tempfile::TempDir::new().unwrap();
+    let qemu = b"foreign-ci-fake-qemu-bytes";
+    std::fs::create_dir_all(resources.path().join("qemu")).unwrap();
+    std::fs::write(resources.path().join("qemu/qemu-system-x86_64"), qemu).unwrap();
+    let mut digest_acc = Sha256::new();
+    digest_acc.update(qemu);
+    let digest_hex = lowercase_hex(digest_acc.finalize().as_slice());
+    let now_ms = chrono::Utc::now().timestamp().max(0) as u64 * 1000 + 1;
+    let mut manifest: RuntimeManifestV1 = serde_json::from_value(serde_json::json!({
+        "schemaVersion": 1,
+        "releaseVersion": "test-packaging-0.1.0",
+        "generation": 1,
+        "issuedAtUnixMs": now_ms,
+        "expiresAtUnixMs": now_ms + 30 * 86_400_000,
+        "signerKeyId": "9b1c6e04-7a2f-4f3d-bc5b-2d4e6f8a0c1e",
+        "signatureHex": "00",
+        "artifacts": [{
+            "artifactId": "0f8a1c2e-3d4b-4a59-8c6e-7d2f9a0b1c3d",
+            "kind": "executable",
+            "platform": "mac_os_intel",
+            "guestArchitecture": "x86_64",
+            "bundleRelativePath": "qemu/qemu-system-x86_64",
+            "sha256": format!("sha256:{digest_hex}"),
+            "sizeBytes": qemu.len() as u64,
+            "permissionBits": 0o755,
+        }]
+    }))
+    .unwrap();
+    let seed: [u8; 32] = [0xA5; 32];
+    let external_key = SigningKey::from_bytes(&seed);
+    let signature = external_key.sign(&manifest.signing_payload_bytes().unwrap());
+    manifest.signature_hex = lowercase_hex(&signature.to_bytes());
+    let mut rendered = serde_json::to_vec_pretty(&manifest).unwrap();
+    rendered.push(b'\n');
+    std::fs::write(
+        resources.path().join(BUNDLED_RUNTIME_MANIFEST_FILENAME),
+        rendered,
+    )
+    .unwrap();
+
+    let external_error = super::verify_pinned_bundle(resources.path()).err().unwrap();
+    assert!(
+        external_error.to_string().contains("BadSignature"),
+        "external key must be refused as misattributed, got {external_error:?}"
+    );
+}
