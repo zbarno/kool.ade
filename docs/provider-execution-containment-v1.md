@@ -299,14 +299,19 @@ reviewable PR against this document, with the corresponding evidence rung
 turning on only inside that PR.
 
 1. **Phase 1 (this document)**: threat model + strategy; merged design.
-   Phase-2 status: the preflight evaluator landed in PR #714 and the
-   `ProviderRuntimeSession` foundation in `provider_session.rs` shipped with
-   this PR: sealed immutable specs (fixed budgets, prefix-named containers,
-   digest-only pin validation, host-mount denial, tmpfs allowlist), the
-   executor port, and fail-closed staged teardown gated on a
-   verified-absent observation. The `containers/provider-runtime/` recipe is
-   an intentional unpinned placeholder; wire-up follows the promotion flow
-   documented there. Probe-battery scaffolding still rides in this phase.
+   Phase-2 status: the preflight evaluator (PR #714), the
+   `ProviderRuntimeSession` foundation (PRs #715/#716: sealed immutable
+   specs with fixed budgets, prefix-named containers, digest-only pin
+   validation including canonical lock-form acceptance, host-mount denial,
+   tmpfs allowlist, the executor port, and fail-closed staged teardown gated
+   on verified-absent observations), and the probe-battery catalog (typed
+   16-vector threat matrix mirroring the table above, with
+   hermetic/contained/manual-evidence execution classes and a provably inert
+   structural runner) are all merged. The `containers/provider-runtime/`
+   recipe remains an intentional unpinned placeholder per its documented
+   promotion flow. Still in phase 2: publishing/pinning the real runtime
+   image (ops action), wiring probe EXECUTION against a contained daemon,
+   and daemon-real teardown E2E.
 2. **Phase 2 — containment foundation**: `ProviderRuntimeSession` skeleton;
    preflight for rootless Docker adequacy; pinned provider runtime image
    recipes (empty-shell first); probe battery scaffolding; teardown/kill
