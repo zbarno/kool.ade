@@ -37,6 +37,7 @@
 - [planner-policy.md](./planner-policy.md) - Read for Planner policy.
 - [project-runtime-composition.md](./project-runtime-composition.md) - Read for Project-specific verified Docker runtimes.
 - [project-runtime-contract.md](./project-runtime-contract.md) - Read for Project runtime capability contract.
+- [provider-execution-containment-v1.md](./provider-execution-containment-v1.md) - Read for Coding provider execution containment design.
 - [provider-runtime-containment-v1.md](./provider-runtime-containment-v1.md) - Read for Provider runtime containment v1.
 - [remote-private-file-grant-protocol-v1.md](./remote-private-file-grant-protocol-v1.md) - Read for Remote private-file grant protocol v1.
 - [runtime-configuration.md](./runtime-configuration.md) - Read for Local configuration for verification.
