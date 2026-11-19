@@ -6,7 +6,8 @@ use zeroize::{Zeroize, Zeroizing};
 
 use koolade::computer_use::runtime_manifest::{
     BUNDLED_RUNTIME_MANIFEST_FILENAME, RUNTIME_MANIFEST_SCHEMA_VERSION, RuntimeManifestTrustV1,
-    RuntimeManifestV1, verify_runtime_manifest,
+    RuntimeManifestV1, application_runtime_manifest_trust_v1, load_bundled_runtime_manifest,
+    verify_runtime_manifest,
 };
 
 pub(super) fn run() -> anyhow::Result<()> {
@@ -93,10 +94,16 @@ pub(super) fn run() -> anyhow::Result<()> {
             println!("{}", serde_json::to_string_pretty(&value)?);
             Ok(())
         }
+        Some("verify-pinned") => {
+            let [bundle_root] = collect_args(args)?;
+            verify_pinned_bundle(Path::new(&bundle_root))?;
+            Ok(())
+        }
         _ => bail!(concat!(
             "usage: computer-use-runtime-manifest ",
             "sign RELEASE_VERSION GENERATION ISSUED_MS EXPIRES_MS KEY_ID TEMPLATE_JSON OUTPUT_JSON (seed hex on stdin) ",
             "| verify BUNDLE_ROOT_DIR PIN_JSON NOW_MS ",
+            "| verify-pinned BUNDLE_ROOT_DIR ",
             "| inspect FILE"
         )),
     }
@@ -183,6 +190,44 @@ fn hex_digit(byte: u8) -> anyhow::Result<u8> {
         b'a'..=b'f' => Ok(byte - b'a' + 10),
         b'A'..=b'F' => Ok(byte - b'A' + 10),
         _ => bail!("invalid hexadecimal byte"),
+    }
+}
+
+/// Verify the fixed-name bundle manifest with THIS application's pinned
+/// runtime trust rather than an operator pin. Release packagers use this as
+/// the only gate that may admit bundled runtime resources into a
+/// distributable; absence of the manifest is a refusal, not a pass.
+fn verify_pinned_bundle(bundle_root: &Path) -> anyhow::Result<()> {
+    let trust = application_runtime_manifest_trust_v1()
+        .map_err(|error| anyhow::anyhow!("application runtime trust unavailable: {error:?}"))?;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("system clock precedes the unix epoch")?
+        .as_millis() as u64;
+    match load_bundled_runtime_manifest(bundle_root, &trust, now_ms)? {
+        Some(verified) => {
+            println!("bundled runtime manifest verified against the application-pinned trust");
+            println!("  digest:     {}", verified.digest());
+            println!("  release:    {}", verified.release_version());
+            println!("  generation: {}", verified.generation());
+            println!("  signer:     {}", verified.signer_key_id());
+            for artifact in verified.artifacts() {
+                println!(
+                    "  artifact:   {:?} {} {} ({})",
+                    artifact.platform(),
+                    artifact.kind(),
+                    artifact.bundle_relative_path(),
+                    artifact.digest()
+                );
+            }
+            Ok(())
+        }
+        None => {
+            bail!(
+                "no {BUNDLED_RUNTIME_MANIFEST_FILENAME} in {}: treating absence as a refusal, not a waiver",
+                bundle_root.display()
+            );
+        }
     }
 }
 
