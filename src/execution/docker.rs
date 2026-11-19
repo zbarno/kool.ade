@@ -9,6 +9,7 @@ pub mod images;
 pub mod prerequisites;
 mod private_storage;
 pub mod provider_preflight;
+pub mod provider_session;
 pub mod qa_container;
 pub mod sandbox;
 

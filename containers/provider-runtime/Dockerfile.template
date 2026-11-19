@@ -1,0 +1,23 @@
+# Template for the rootless-Docker provider runtime image (Issue #591, phase 2).
+#
+# STATUS: NOT YET PINNABLE. This recipe is an intentional placeholder for the
+# smallest possible container a provider CLI may run in: a locked Debian
+# base with coreutils + curl for connectivity checks, NO shell beyond sh,
+# NO privileged capabilities, non-root USER. It is deliberately NOT part of
+# containers/images.lock.json yet: the runtime manifest machinery (see
+# computer_use_runtime_manifest / verify-pinned) pins digests of *published*
+# images only, and no publisher step exists for this image family yet.
+#
+# Promotion flow (phase 2 exit criteria):
+#   1. Ops publishes this image to the approved registry.
+#   2. Obtain the authentic digest from the registry (NOT a locally computed
+#      guess) for linux/amd64 and linux/arm64.
+#   3. Extend the image lock schema/profile (requires a deliberate, reviewed
+#      change to images/mod.rs REQUIRED_PROFILES handling).
+#   4. Wire ProviderContainerSpec through ProviderExecutorPort with the
+#      pinned reference + digest.
+FROM gcr.io/distroless/base-debian12@sha256:__PENDING_AUTHENTIC_DIGEST__
+COPY --chmod=0555 curl-static /usr/local/bin/curl
+USER 65532:65532
+ENTRYPOINT []
+CMD []
