@@ -320,15 +320,18 @@ turning on only inside that PR.
    pinned contained image via `validate_image_pin`, recorded managed-hook
    containment attestation) with every hole fail-closed and the legacy
    block notices preserved byte-for-byte for the evidence-free state.
-   Retirement of the block constants (and unblocking Worker when contained
-   launch exists) lands with the contained launch adapter. Standing
+   The evidence-driven Worker flip landed with the interim evidence feed;
+   block-constant retirement stays owed to the dynamic-reasons
+   replacement (item 5) and survives until then (Manager static arm +
+   obstructed rendering). Standing
    obligations for those slices: the evidence feed binds CPU
    architecture to the platform fact it emits (never emit a Linux fact
    for unvalidated archs); the feed/promotion wiring allowlists exact
    registry+repository identity (plus the three local-registry bypass
    shapes) before any pull keyed to these verdicts; and the flip that
    admits workers migrates the static consumer census (direct-execute
-   gates, summaries, onboarding/probe text) to the evidence-aware query
+   gates, summaries, onboarding/probe text) to the evidence-aware query,
+   leaving rendered notices unchanged wherever the block holds.
 
 
    Another piece lands in this series: the contained launch
@@ -342,8 +345,32 @@ turning on only inside that PR.
    runs even after clean exits; residue is reported, never absorbed).
    Live end-to-end provider execution remains intentionally gated on
    the network posture (the session-layer network enum is
-   `Undecided` until the phase-2a egress contract is frozen) and on a
-   production executor, neither of which this series ships.
+   `Undecided` until the phase-2a egress contract is frozen) and on the
+   existence of a production executor. Neither condition is met anywhere
+   in this series, so no end-to-end provider execution path opens.
+
+
+   And one more: the INTERIM capability-evidence feed
+   (`harness::execution_security::provider_evidence_feed`) populates
+   the eligibility context from real sources: a platform fact (runtime
+   OS family AND compile-time arch gate; exotic targets degrade to
+   `Unknown`), a digest-pinned image entry read from the COMPILED-IN
+   `containers/images.lock.json` under the additive
+   `profiles.provider_cli` key (absent in every released lock today, so
+   every current deployment gathers `None` and stays obstructed —
+   flipping the block requires ops to publish a validated provider
+   profile through the image-promotion pipeline; malformed entries fail
+   closed to absence), and two interim OPERATOR-ASSERTED env switches
+   (`KOOLADE_PROVIDER_ENGINE_VERIFIED=1`,
+   `KOOLADE_PROVIDER_HOOK_CONTAINMENT_ATTESTED=1`) standing in for
+   pipeline-grade engine verification and hook-containment attestation
+   — default OFF, eligibility-raising only, containment unchanged
+   (session layer remains the sole containment authority). The feed
+   delivers a once-initialized process snapshot to the Worker selection
+   arm; unprovisioned processes observe the exact legacy notices.
+   Standing obligations: pipeline verifiers replace the env switches;
+   ops publishes the `provider_cli` lock profile alongside image
+   build/sign/publish.
 2. **Phase 2 — containment foundation**: `ProviderRuntimeSession` skeleton;
    preflight for rootless Docker adequacy; pinned provider runtime image
    recipes (empty-shell first); probe battery scaffolding; teardown/kill

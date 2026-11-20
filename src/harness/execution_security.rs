@@ -13,6 +13,8 @@ mod profiles;
 mod provider_contained_launch;
 #[path = "execution_security/provider_eligibility.rs"]
 mod provider_eligibility;
+#[path = "execution_security/provider_evidence_feed.rs"]
+mod provider_evidence_feed;
 #[cfg(unix)]
 mod session_bridge;
 #[cfg(windows)]

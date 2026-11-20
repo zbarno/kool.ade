@@ -77,19 +77,17 @@ pub(crate) fn profile_block_reason(
         }
         (_, None) => Some("This CLI has no verified application-owned execution profile."),
         (Worker, _) => {
-            // Live evaluator on the selection path: obstructed (the current
-            // state) reproduces the exact legacy notice; a provisioned
-            // evidence context admitting the provider flips this arm to
-            // None without touching callers.
-            let obstructed = task_execution_block_reason_ctx(
-                &id,
-                // No provisioned evidence anywhere yet: the default context
-                // evaluates obstructed (byte-for-byte historic behavior).
-                // The contained-launch/evidence-feed slices substitute
-                // store-derived contexts here.
-                &super::provider_eligibility::ProviderContainmentEvidence::default(),
-            )
-            .is_some();
+            // Live evaluator on the selection path, fed by the once-
+            // initialized evidence snapshot (piece 3). Today's universally
+            // unprovisioned deployments gather the default-obstructed
+            // context, reproducing the exact legacy notice; a deployment
+            // that provisions complete positive evidence (published pin +
+            // engine/attestation facts) flips this arm to None without
+            // touching callers. Manager readiness stays legacy-static per
+            // #451.
+            let obstructed =
+                task_execution_block_reason_ctx(&id, &super::provider_evidence_feed::snapshot())
+                    .is_some();
             if obstructed {
                 task_execution_block_reason(&id)
             } else {
