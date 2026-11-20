@@ -13,6 +13,11 @@ use std::collections::BTreeSet;
 /// Container name prefix. Sessions may only manage containers carrying it.
 pub const SESSION_NAME_PREFIX: &str = "koolade-provider-";
 
+/// Maximum container-name length accepted by the builder and honored by the
+/// teardown ownership gate (kept short for logs and labels; Docker allows
+/// 255). Single source of truth so adapters can budget suffixes exactly.
+pub const SESSION_MAX_CONTAINER_NAME_LEN: usize = 63;
+
 /// Label marking a container as owned by the provider runtime session.
 pub const OWNERSHIP_LABEL_KEY: &str = "com.koolade.provider-runtime";
 pub const OWNERSHIP_LABEL_VALUE: &str = "v1";
@@ -273,7 +278,7 @@ impl ProviderSpecBuilder {
         }
         // Conservative cap aligned to common identifier limits (Docker
         // allows 255; we keep names short for logs and labels).
-        if name.len() > 63 {
+        if name.len() > SESSION_MAX_CONTAINER_NAME_LEN {
             return Err(ProviderSessionError::InvalidContainerName(name));
         }
         Ok(ProviderContainerSpec {

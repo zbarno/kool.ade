@@ -9,6 +9,8 @@ mod computer_use_bridge;
 mod mcp_server;
 #[path = "execution_security/profiles.rs"]
 mod profiles;
+#[path = "execution_security/provider_contained_launch.rs"]
+mod provider_contained_launch;
 #[path = "execution_security/provider_eligibility.rs"]
 mod provider_eligibility;
 #[cfg(unix)]
