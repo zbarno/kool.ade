@@ -7,7 +7,7 @@
 //!
 //! - **Trust path** mirrors the sanctioned local session discovery
 //!   ([`DockerEndpoint::from_process_environment`](super::engine)::`connect`),
-//!   including socket validation and version negotiation.
+//!   including socket validation and fixed-API-version compatibility.
 //! - **Network**: the spec's single posture
 //!   ([`ProviderNetworkMode::Undecided`]) maps to the STRONGEST engine
 //!   posture, `HostConfig.network_mode = "none"`: undecided means no
@@ -56,20 +56,28 @@ use std::time::{Duration, Instant};
 use super::engine::DockerEndpoint;
 use super::provider_session::{
     MountKind, OWNERSHIP_LABEL_KEY, OWNERSHIP_LABEL_VALUE, ProviderContainerSpec,
-    ProviderExecutorPort, ProviderNetworkMode, ProviderSessionError,
+    ProviderExecutorPort, ProviderNetworkMode, ProviderSessionError, validate_image_pin,
 };
 
 /// Wall-clock cap for the keeper liveness probe. Normal success takes TWO
 /// consecutive running observations (~500ms); the cap bounds only the
 /// pathological "never left created state" stall before teardown.
+/// Worst-case adverse latency is the window plus at most TWO private
+/// client timeouts (15s each: one stuck stop + one stuck force-remove),
+/// since the deadline is enforced BETWEEN rpcs, never inside one.
 const KEEPER_PRESENTATION_DEADLINE_MS: u64 = 5_000;
 const ENGINE_POLL_INTERVAL_MS: u64 = 250;
 /// Engine-side stop grace before force-remove escalation (handled by the
 /// session teardown contract's remove step; stop itself stays polite).
 const STOP_GRACE_SECONDS: i32 = 10;
-/// Absolute cap on one contained exec; the port promise is "always
-/// resolves", so unbounded waits are impermissible. Six hours exceeds any
-/// realistic CLI task horizon while keeping the guarantee finite.
+/// Client-request slack on this driver's private channel: guarantees the
+/// longest legitimate engine-side wait (the stop grace window) fits inside
+/// the client's own patience.
+const CLIENT_REQUEST_SLACK_SECS: u64 = 5;
+/// Wall-clock cap shared by BOTH exec segments: the attached-stream drain
+/// and the termination-observation poll. The absolute deadline is captured
+/// before the drain begins, so the port promise ("always resolves") holds
+/// end to end; six hours exceeds any realistic CLI task horizon.
 const EXEC_HARD_CAP: Duration = Duration::from_secs(6 * 3_600);
 /// Entrypoint override providing the exec namespace's keeper. Deliberately
 /// the smallest portable coreutil invocation; the liveness probe catches
@@ -93,6 +101,15 @@ pub(crate) fn is_engine_entity_missing(error: &EngineError) -> bool {
 /// validate against the compiled constants is refused HERE, before any
 /// engine traffic. Factored out so the guard is directly testable without
 /// a client.
+/// Canonical digest-addressed pull reference: any digest embedded in the
+/// given reference is REPLACED by the spec's sealed digest, so the engine
+/// can only ever pull the identity we attest to — a tag-only reference
+/// still resolves by digest, never by floating tag.
+pub(crate) fn canonical_pull_reference(reference: &str, digest: &str) -> String {
+    let base = reference.split('@').next().unwrap_or(reference);
+    format!("{base}@{digest}")
+}
+
 pub(crate) fn reject_unsealed_create(
     spec: &ProviderContainerSpec,
 ) -> Result<(), ProviderSessionError> {
@@ -103,6 +120,16 @@ pub(crate) fn reject_unsealed_create(
             cause: "spec failed revalidation against the sealed constants; refusing before engine traffic".into(),
         });
     }
+    // Defense in depth: the seal check knows nothing about pins. Re-check
+    // HERE so this driver's digest-only-identification promise stands on
+    // its own even against a future spec producer that forgets.
+    validate_image_pin(&spec.image_reference, &spec.image_digest).map_err(|error| {
+        ProviderSessionError::EngineOperationFailed {
+            phase: "create(pin-check)",
+            name: spec.container_name.clone(),
+            cause: error.to_string(),
+        }
+    })?;
     Ok(())
 }
 
@@ -158,7 +185,10 @@ pub(crate) fn build_create_payload(
         ..Default::default()
     };
     let body = ContainerCreateBody {
-        image: Some(spec.image_reference.clone()),
+        image: Some(canonical_pull_reference(
+            &spec.image_reference,
+            &spec.image_digest,
+        )),
         // The keeper owns the main process; workloads arrive via exec.
         entrypoint: Some(vec![KEEPER_ARG0.to_string(), KEEPER_ARG1.to_string()]),
         cmd: None,
@@ -201,7 +231,7 @@ impl ProviderContainerDriver {
                 cause: failure.message.clone(),
             }
         })?;
-        let docker =
+        let mut docker =
             endpoint
                 .connect()
                 .map_err(|failure| ProviderSessionError::EngineOperationFailed {
@@ -209,6 +239,13 @@ impl ProviderContainerDriver {
                     name: String::new(),
                     cause: failure.message.clone(),
                 })?;
+        // The shared discovery path installs a short request timeout; widen
+        // THIS private instance so a legitimate stop (whose engine-side
+        // grace window is ours) never masquerades as a client timeout.
+        docker.set_timeout(Duration::from_secs(
+            u64::try_from(STOP_GRACE_SECONDS).unwrap_or(CLIENT_REQUEST_SLACK_SECS)
+                + CLIENT_REQUEST_SLACK_SECS,
+        ));
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_io()
             .enable_time()
@@ -281,7 +318,7 @@ impl ProviderExecutorPort for ProviderContainerDriver {
                                     }),
                                 )
                                 .await;
-                            let removed = docker
+                            let remove_outcome = docker
                                 .remove_container(
                                     &name,
                                     Some(RemoveContainerOptions {
@@ -290,9 +327,15 @@ impl ProviderExecutorPort for ProviderContainerDriver {
                                         link: false,
                                     }),
                                 )
-                                .await
-                                .is_ok();
-                            if removed {
+                                .await;
+                            // A 404 from force-remove means the engine
+                            // AGREES the entity is gone; only a real
+                            // failure means residue.
+                            let cleanly_gone = match &remove_outcome {
+                                Ok(()) => true,
+                                Err(error) => is_engine_entity_missing(error),
+                            };
+                            if cleanly_gone {
                                 return Err(ProviderSessionError::EngineOperationFailed {
                                     phase: "keeper-probe",
                                     name,
@@ -331,7 +374,7 @@ impl ProviderExecutorPort for ProviderContainerDriver {
                             }),
                         )
                         .await;
-                    let removed = docker
+                    let remove_outcome = docker
                         .remove_container(
                             &name,
                             Some(RemoveContainerOptions {
@@ -340,9 +383,14 @@ impl ProviderExecutorPort for ProviderContainerDriver {
                                 link: false,
                             }),
                         )
-                        .await
-                        .is_ok();
-                    if removed {
+                        .await;
+                    // A 404 from force-remove means the engine AGREES the
+                    // entity is gone; only a real failure means residue.
+                    let cleanly_gone = match &remove_outcome {
+                        Ok(()) => true,
+                        Err(error) => is_engine_entity_missing(error),
+                    };
+                    if cleanly_gone {
                         return Err(ProviderSessionError::EngineOperationFailed {
                             phase: "keeper-probe(cap)",
                             name,
@@ -351,15 +399,13 @@ impl ProviderExecutorPort for ProviderContainerDriver {
                     }
                     return Err(ProviderSessionError::TerminatedWithResidue(name));
                 }
-                tokio::time::sleep(Duration::from_millis(ENGINE_POLL_INTERVAL_MS.min(
-                    KEEPER_PRESENTATION_DEADLINE_MS,
-                )))
-                .await;
+                tokio::time::sleep(Duration::from_millis(ENGINE_POLL_INTERVAL_MS)).await;
             }
         })
     }
 
     fn exec(&mut self, name: &str, argv: &[String]) -> Result<i32, ProviderSessionError> {
+        let hard_stop = Instant::now() + EXEC_HARD_CAP;
         let docker = self.docker.clone();
         let owned = name.to_string();
         let argv: Vec<String> = argv.to_vec();
@@ -404,9 +450,35 @@ impl ProviderExecutorPort for ProviderContainerDriver {
                 bollard::exec::StartExecResults::Attached { mut output, .. } => {
                     // Drain until the exec closes its streams. Output is
                     // discarded in v1; the port gains observability in a
-                    // later slice (documented residual).
+                    // later slice (documented residual). The stream body
+                    // is the ONE bollard segment exempt from the client
+                    // request timeout, so it carries its own bound — the
+                    // SAME absolute cap the termination poll uses below —
+                    // or the "always resolves" promise has a hole in it.
                     use futures_util::StreamExt as _;
-                    while output.next().await.is_some() {}
+                    let drain = async move {
+                        while output.next().await.is_some() {}
+                    };
+                    tokio::select! {
+                        _ = drain => {}
+                        _ =
+                            tokio::time::sleep_until(tokio::time::Instant::from_std(
+                                hard_stop,
+                            )) =>
+                        {
+                            // Bollard offers no standalone exec-kill in this
+                            // API vintage; the exec survives inside its
+                            // bounded namespace until the session teardown
+                            // removes the container, which the launcher
+                            // performs on failure. Bounded blast radius
+                            // (pids/mem/CPU caps) keeps that survivable.
+                            return Err(ProviderSessionError::EngineOperationFailed {
+                                phase: "exec(cap)",
+                                name: owned,
+                                cause: "contained exec stream outlived the wall-clock hard cap".into(),
+                            });
+                        }
+                    }
                 }
                 bollard::exec::StartExecResults::Detached => {
                     return Err(ProviderSessionError::EngineOperationFailed {
@@ -416,13 +488,20 @@ impl ProviderExecutorPort for ProviderContainerDriver {
                     });
                 }
             }
-            let cap_deadline = Instant::now() + EXEC_HARD_CAP;
+            let cap_deadline = hard_stop;
             loop {
                 match docker.inspect_exec(&exec.id).await {
                     Ok(status) => {
                         if status.running == Some(false) {
                             return match status.exit_code {
-                                Some(code) => Ok(code as i32),
+                                Some(code) => i32::try_from(code).map_err(|_| {
+                                    ProviderSessionError::EngineOperationFailed {
+                                        phase: "exec(exit)",
+                                        name: owned,
+                                        cause: "engine reported an out-of-i32-range exit code"
+                                            .into(),
+                                    }
+                                }),
                                 None => Err(ProviderSessionError::EngineOperationFailed {
                                     phase: "exec(exit)",
                                     name: owned,
@@ -545,7 +624,11 @@ mod tests {
         assert_eq!(options.platform, "");
 
         let host = body.host_config.expect("host config always encoded");
-        assert_eq!(body.image.as_deref(), Some(spec.image_reference.as_str()));
+        assert_eq!(
+            body.image.as_deref(),
+            Some(format!("example.invalid/team/cli:v1@{}", spec.image_digest).as_str()),
+            "the engine sees the digest-addressed identity, never a bare tag"
+        );
         assert_eq!(
             body.entrypoint.as_deref(),
             Some([KEEPER_ARG0, KEEPER_ARG1].map(str::to_owned).as_slice())
@@ -638,6 +721,21 @@ mod tests {
     }
 
     #[test]
+    fn create_guard_refuses_an_embedded_digest_that_disagrees() {
+        let mut drifting_pin = built_spec(64 * 1024 * 1024);
+        drifting_pin.image_reference =
+            format!("example.invalid/team/cli:v1@sha256:{}", "ef".repeat(32));
+        let error = reject_unsealed_create(&drifting_pin)
+            .expect_err("an embedded/embedding digest disagreement refuses pre-traffic");
+        match &error {
+            ProviderSessionError::EngineOperationFailed { phase, .. } => {
+                assert_eq!(*phase, "create(pin-check)");
+            }
+            other => panic!("expected the pin checkpoint, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn entity_missing_classifier_tracks_exactly_http_404() {
         let mk = |code: u16| EngineError::DockerResponseServerError {
             status_code: code,
@@ -654,15 +752,19 @@ mod tests {
     }
 
     /// Documented live-lifecycle reservation. Runs ONLY when an operator
-    /// provides both a reachable engine AND a digest-addressed scratch
-    /// image exposing a `sleep` keeper; CI and dev machines without that
-    /// provisioning skip it honestly. The full ops promotion path
-    /// (pipeline-verified provider image + evidence feed) supersedes this
-    /// probe for production confidence.
+    /// provides a reachable engine (standard DOCKER_HOST conventions) and
+    /// a digest-addressed provider-shape image exposing the `sleep`
+    /// keeper; CI/dev machines lacking that provisioning skip it
+    /// honestly. Contract knobs:
+    ///   KOOLADE_DRIVER_SMOKE_IMAGE       (required) digest-addressed image
+    ///   KOOLADE_DRIVER_SMOKE_ARGV        comma-split exec argv
+    ///                                   (default "printf,ok")
+    ///   KOOLADE_DRIVER_SMOKE_EXPECT_EXIT (default "0") expected exit
+    /// The full ops promotion path (pipeline-verified provider image +
+    /// evidence feed) supersedes this probe for production confidence.
     #[test]
-    #[ignore = "requires a local docker engine plus an image exposing sleep; operator-run"]
+    #[ignore = "requires a local docker engine and a digest-pinned image; operator-run"]
     fn live_lifecycle_smoke() {
-        use std::time::Duration as StdDur;
         let image_ref = std::env::var("KOOLADE_DRIVER_SMOKE_IMAGE")
             .expect("KOOLADE_DRIVER_SMOKE_IMAGE=digest-pinned image required");
         let digest = image_ref
@@ -671,6 +773,27 @@ mod tests {
             .and_then(|suffix| suffix.strip_prefix("sha256:"))
             .expect("smoke image must be digest-addressed")
             .to_string();
+        let argv_raw = std::env::var("KOOLADE_DRIVER_SMOKE_ARGV").unwrap_or_default();
+        let argv_source = if argv_raw.trim().is_empty() {
+            "printf,ok".to_string()
+        } else {
+            argv_raw.trim().to_string()
+        };
+        let argv: Vec<String> = argv_source
+            .split(',')
+            .filter(|part| !part.trim().is_empty())
+            .map(str::trim)
+            .map(str::to_string)
+            .collect();
+        let expected_exit: i32 = match std::env::var("KOOLADE_DRIVER_SMOKE_EXPECT_EXIT")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+        {
+            None => 0,
+            Some(raw) => raw.trim().parse::<i32>().unwrap_or_else(|_| {
+                panic!("KOOLADE_DRIVER_SMOKE_EXPECT_EXIT must be an integer, got {raw:?}")
+            }),
+        };
         let mut driver = ProviderContainerDriver::connect().expect("local engine reachable");
         let mut spec = ProviderSpecBuilder::new("unused", digest)
             .container_name(format!(
@@ -686,19 +809,22 @@ mod tests {
         driver
             .create(&spec)
             .expect("keeper container starts and stabilizes");
-        assert_ne!(
-            driver
-                .exec(
-                    &spec.container_name,
-                    &["sh".into(), "-c".into(), "echo ok".into()]
-                )
-                .unwrap(),
-            0,
-            "distroless bases lack shells; THIS is expected to fail exec and PROVE the namespace is hollow-safe"
+        let exit = driver
+            .exec(&spec.container_name, &argv)
+            .expect("exec resolves with a verdict");
+        assert_eq!(
+            exit, expected_exit,
+            "operator-provisioned image/argv contract broken; expected {expected_exit}"
         );
-        let _ = driver.terminate(&spec.container_name);
-        let record_present = !driver.verify_absent(&spec.container_name);
-        assert!(record_present || driver.remove(&spec.container_name).is_ok());
-        let _ = StdDur::ZERO;
+        driver
+            .terminate(&spec.container_name)
+            .expect("polite stop completes");
+        driver
+            .remove(&spec.container_name)
+            .expect("teardown removes the record");
+        assert!(
+            driver.verify_absent(&spec.container_name),
+            "engine must positively confirm absence after stop + remove"
+        );
     }
 }

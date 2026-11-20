@@ -127,7 +127,12 @@ impl std::fmt::Display for ProviderSessionError {
                 "terminate call failed for {name} while it still presented (cause: {cause})"
             ),
             ProviderSessionError::EngineOperationFailed { phase, name, cause } => {
-                format!("provider engine {phase} failed for {name}: {cause}")
+                let who = if name.is_empty() {
+                    "(engine)"
+                } else {
+                    name.as_str()
+                };
+                format!("provider engine {phase} failed for {who}: {cause}")
             }
             ProviderSessionError::InvalidImagePin(detail) => {
                 format!("provider image pin rejected: {detail}")
