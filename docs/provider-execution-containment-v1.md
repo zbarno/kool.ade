@@ -329,7 +329,21 @@ turning on only inside that PR.
    shapes) before any pull keyed to these verdicts; and the flip that
    admits workers migrates the static consumer census (direct-execute
    gates, summaries, onboarding/probe text) to the evidence-aware query
-   so no display site contradicts the admission.
+
+
+   Another piece lands in this series: the contained launch
+   adapter (`harness::execution_security::provider_contained_launch`)
+   converts affirmative capability evidence into SEALED
+   `koolade-provider-*` launch plans through the merged session
+   builder/port: zero engine contact on any evidence shortfall
+   (carrying the full obstruction list), ownership-prefixed
+   deterministic names, revalidation of the sealing invariants after
+   build, and the session's verified-absent teardown discipline (it
+   runs even after clean exits; residue is reported, never absorbed).
+   Live end-to-end provider execution remains intentionally gated on
+   the network posture (the session-layer network enum is
+   `Undecided` until the phase-2a egress contract is frozen) and on a
+   production executor, neither of which this series ships.
 2. **Phase 2 — containment foundation**: `ProviderRuntimeSession` skeleton;
    preflight for rootless Docker adequacy; pinned provider runtime image
    recipes (empty-shell first); probe battery scaffolding; teardown/kill
