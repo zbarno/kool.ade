@@ -82,6 +82,15 @@ pub enum ProviderSessionError {
         name: String,
         cause: String,
     },
+    /// An engine operation (discover/connect/create/start/exec/stop/
+    /// remove) failed outside the session contract's own outcome
+    /// channels. The `phase` marker localizes where; the cause carries
+    /// the engine message only (never credentials or payloads).
+    EngineOperationFailed {
+        phase: &'static str,
+        name: String,
+        cause: String,
+    },
     /// Pinned image reference/digest failed format validation.
     InvalidImagePin(String),
 }
@@ -117,6 +126,9 @@ impl std::fmt::Display for ProviderSessionError {
             ProviderSessionError::TerminateFailed { name, cause } => format!(
                 "terminate call failed for {name} while it still presented (cause: {cause})"
             ),
+            ProviderSessionError::EngineOperationFailed { phase, name, cause } => {
+                format!("provider engine {phase} failed for {name}: {cause}")
+            }
             ProviderSessionError::InvalidImagePin(detail) => {
                 format!("provider image pin rejected: {detail}")
             }

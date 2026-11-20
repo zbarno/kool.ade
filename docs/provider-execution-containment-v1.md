@@ -345,9 +345,13 @@ turning on only inside that PR.
    runs even after clean exits; residue is reported, never absorbed).
    Live end-to-end provider execution remains intentionally gated on
    the network posture (the session-layer network enum is
-   `Undecided` until the phase-2a egress contract is frozen) and on the
-   existence of a production executor. Neither condition is met anywhere
-   in this series, so no end-to-end provider execution path opens.
+   `Undecided` until the phase-2a egress contract is frozen) and on a
+   launch path that actually drives a production executor (the
+   bollard-backed adapter lands with this slice but is deliberately not
+   wired in yet; runnable evidence also still does not exist in any
+   released lock). No joint satisfaction of those conditions occurs
+   anywhere in this series, so no end-to-end provider execution path
+   opens.
 
 
    And one more: the INTERIM capability-evidence feed
@@ -371,6 +375,40 @@ turning on only inside that PR.
    Standing obligations: pipeline verifiers replace the env switches;
    ops publishes the `provider_cli` lock profile alongside image
    build/sign/publish.
+
+   And the fourth piece: the PRODUCTION engine adapter
+   (`execution::docker::provider_driver::ProviderContainerDriver`) now
+   implements the session layer's synchronous `ProviderExecutorPort`
+   over bollard. Guarantees, in code: connection rides the same trusted
+   endpoint discovery local sessions use (untrusted endpoints refuse);
+   `create` re-validates the spec's seal and refuses a tampered spec
+   BEFORE any engine traffic; the spec maps to the engine verbatim and
+   maximally strictly — read-only rootfs, `no-new-privileges` (encoded
+   via the version-stable security opt), capabilities dropped to ALL,
+   pids/memory/CPU pinned to the session constants, the ownership label
+   stamped so the teardown deny-list reaches the real container, and
+   the single existing network posture (`Undecided`) translated to the
+   strongest engine posture, `network_mode="none"` (authorizing a real
+   posture remains phase-2a's); the workload rides the exec namespace
+   so the main process is a boring keeper (`sleep infinity`,
+   entrypoint-overridden) with a BOUNDED liveness probe that tears the
+   container down through the ownership-gated contract when the keeper
+   dies or never presents (typical failure on keeper-less images is a
+   typed error, not an invisible hang); exec drains attached streams,
+   enforces a hard wall-clock cap, and always resolves to an engine
+   exit code or a typed failure; and `verify_absent` honors the layer's
+   epistemics — true only on a definitive engine 404, unknown treated
+   as present. One operational consequence to name plainly: the
+   adapter must be driven from a NON-Tokio thread (it parks a private
+   current-thread runtime per call), which the upcoming launch wiring
+   accommodates with a dedicated containment lane. It is DELIBERATELY
+   STILL UNWIRED: no production path invokes it yet, the fixture-proof
+   story is unchanged (the hermetic test suite proves the mapping,
+   seal gate, name rules, and 404 classification without a daemon; one
+   honest `#[ignore]`d smoke documents the live-lifecycle reservation),
+   and the real provider runtime image — which the distroless recipe
+   must eventually teach to carry the keeper binary — remains the ops
+   promotion's job.
 2. **Phase 2 — containment foundation**: `ProviderRuntimeSession` skeleton;
    preflight for rootless Docker adequacy; pinned provider runtime image
    recipes (empty-shell first); probe battery scaffolding; teardown/kill
