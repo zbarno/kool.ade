@@ -9,6 +9,8 @@ mod computer_use_bridge;
 mod mcp_server;
 #[path = "execution_security/profiles.rs"]
 mod profiles;
+#[path = "execution_security/provider_eligibility.rs"]
+mod provider_eligibility;
 #[cfg(unix)]
 mod session_bridge;
 #[cfg(windows)]

@@ -312,6 +312,24 @@ turning on only inside that PR.
    promotion flow. Still in phase 2: publishing/pinning the real runtime
    image (ops action), wiring probe EXECUTION against a contained daemon,
    and daemon-real teardown E2E.
+   Phase-4 status: the capability-evidence eligibility core lands in this
+   slice (`harness::execution_security::provider_eligibility`):
+   Codex/Claude task-execution is evaluated as a CONJUNCTION of
+   positively-evidenced
+   preconditions (validated platform, verified rootless engine, digest-
+   pinned contained image via `validate_image_pin`, recorded managed-hook
+   containment attestation) with every hole fail-closed and the legacy
+   block notices preserved byte-for-byte for the evidence-free state.
+   Retirement of the block constants (and unblocking Worker when contained
+   launch exists) lands with the contained launch adapter. Standing
+   obligations for those slices: the evidence feed binds CPU
+   architecture to the platform fact it emits (never emit a Linux fact
+   for unvalidated archs); the feed/promotion wiring allowlists exact
+   registry+repository identity (plus the three local-registry bypass
+   shapes) before any pull keyed to these verdicts; and the flip that
+   admits workers migrates the static consumer census (direct-execute
+   gates, summaries, onboarding/probe text) to the evidence-aware query
+   so no display site contradicts the admission.
 2. **Phase 2 — containment foundation**: `ProviderRuntimeSession` skeleton;
    preflight for rootless Docker adequacy; pinned provider runtime image
    recipes (empty-shell first); probe battery scaffolding; teardown/kill
