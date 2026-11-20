@@ -113,17 +113,8 @@ pub struct ProviderContainmentEvidence {
 }
 
 /// Lowercased OS family identifiers, matching the platform probe spellings.
-// Variant constructions are test- and feed-slice territory; on any single
-// build target the other families are not constructed by production code
-// yet. The tracking expectation self-reports once the evidence feed begins
-// constructing them, forcing cleanup.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the host-family evidence feed constructs these variants; tests exercise them meanwhile"
-    )
-)]
+/// Constructed by production code (the interim evidence feed detects the
+/// runtime/build fact) and by tests exercising the other families.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PlatformFact {
     Linux,
