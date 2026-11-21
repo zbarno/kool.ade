@@ -41,7 +41,7 @@
 )]
 
 use crate::execution::docker::provider_session::{
-    ProviderContainerSpec, ProviderExecutorPort, ProviderSpecBuilder,
+    CapturedExecReport, ProviderContainerSpec, ProviderExecutorPort, ProviderSpecBuilder,
     SESSION_MAX_CONTAINER_NAME_LEN, SESSION_NAME_PREFIX, terminate_then_cleanup,
 };
 
@@ -181,7 +181,7 @@ fn run_teardown_pass<E: ProviderExecutorPort>(executor: &mut E, name: &str) -> b
 pub fn run_planned_contained<E: ProviderExecutorPort>(
     executor: &mut E,
     plan: &ContainedLaunchPlan,
-) -> Result<i32, ContainedLaunchError> {
+) -> Result<CapturedExecReport, ContainedLaunchError> {
     let name = plan.spec.container_name.clone();
     let fail = |what: &str, err_display: String, executor: &mut E| ContainedLaunchError::Engine {
         detail: format!("{what}: {err_display}"),
@@ -191,15 +191,18 @@ pub fn run_planned_contained<E: ProviderExecutorPort>(
         return Err(fail("create", format!("{err}"), executor));
     }
     match executor.exec(&name, &plan.argv) {
-        Ok(code) => {
+        Ok(report) => {
             let teardown_ok = run_teardown_pass(executor, &name);
             if !teardown_ok {
                 return Err(ContainedLaunchError::Engine {
-                    detail: format!("exec finished ({code}) but teardown could not verify absence"),
+                    detail: format!(
+                        "exec finished ({}) but teardown could not verify absence",
+                        report.exit_code
+                    ),
                     teardown_ok: false,
                 });
             }
-            Ok(code)
+            Ok(report)
         }
         Err(err) => Err(fail("exec", format!("{err}"), executor)),
     }

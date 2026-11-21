@@ -30,7 +30,7 @@ struct FixtureExecutor {
     terminated: usize,
     removed: usize,
     create_outcome: Result<(), ()>,
-    exec_outcome: Result<i32, ()>,
+    exec_outcome: Result<CapturedExecReport, ()>,
     /// When true, `verify_absent` lies "still present" even after terminate
     /// (models an engine that accepted the terminate but cannot confirm
     /// absence): the session must report RESIDUE and the adapter must
@@ -47,7 +47,7 @@ impl FixtureExecutor {
             terminated: 0,
             removed: 0,
             create_outcome: Ok(()),
-            exec_outcome: Ok(0),
+            exec_outcome: Ok(CapturedExecReport::bare(0)),
             lie_resident: false,
         }
     }
@@ -61,7 +61,7 @@ impl FixtureExecutor {
     }
     fn exec_code(self, code: i32) -> Self {
         Self {
-            exec_outcome: Ok(code),
+            exec_outcome: Ok(CapturedExecReport::bare(code)),
             ..self
         }
     }
@@ -84,12 +84,16 @@ impl ProviderExecutorPort for FixtureExecutor {
         self.alive = true;
         Ok(())
     }
-    fn exec(&mut self, _name: &str, argv: &[String]) -> Result<i32, ProviderSessionError> {
+    fn exec(
+        &mut self,
+        _name: &str,
+        argv: &[String],
+    ) -> Result<CapturedExecReport, ProviderSessionError> {
         if !self.alive {
             return Err(self.error());
         }
         self.exec_calls.push(argv.to_vec());
-        self.exec_outcome.map_err(|_| self.error())
+        self.exec_outcome.clone().map_err(|_| self.error())
     }
     fn terminate(&mut self, _name: &str) -> Result<(), ProviderSessionError> {
         self.terminated += 1;
@@ -268,8 +272,8 @@ fn fixture_run_completes_with_verified_teardown_and_recorded_argv() {
     )
     .unwrap();
     let mut fx = FixtureExecutor::permissive();
-    let code = run_planned_contained(&mut fx, &plan).expect("happy path completes");
-    assert_eq!(code, 0);
+    let report = run_planned_contained(&mut fx, &plan).expect("happy path completes");
+    assert_eq!(report.exit_code, 0);
     assert_eq!(fx.created, 1);
     assert_eq!(
         fx.exec_calls,
@@ -284,8 +288,8 @@ fn fixture_run_completes_with_verified_teardown_and_recorded_argv() {
 fn nonzero_exit_propagates_after_successful_verified_teardown() {
     let plan = plan_contained_launch(CliProvider::Codex, &full_evidence(), "nz9", vec![]).unwrap();
     let mut fx = FixtureExecutor::permissive().exec_code(7);
-    let code = run_planned_contained(&mut fx, &plan).expect("propagation");
-    assert_eq!(code, 7);
+    let report = run_planned_contained(&mut fx, &plan).expect("propagation");
+    assert_eq!(report.exit_code, 7);
     assert!(fx.terminated >= 1 && fx.removed >= 1, "teardown ran");
 }
 
@@ -361,7 +365,10 @@ fn unverified_presence_after_clean_exit_is_surfaced_not_absorbed() {
             assert!(detail.starts_with("exec finished (0)"), "{detail}");
             assert!(!teardown_ok, "residue must not be absorbed as success");
         }
-        Ok(code) => panic!("absent-unverified clean exit leaked as Ok({code})"),
+        Ok(report) => panic!(
+            "absent-unverified clean exit leaked as Ok({})",
+            report.exit_code
+        ),
         other => panic!("expected Engine teardown report, got {other:?}"),
     }
 }
