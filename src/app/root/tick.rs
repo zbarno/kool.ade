@@ -14,6 +14,11 @@ pub(crate) fn poll_implementations_for_test(app: &mut KooladeApp) {
     app.poll_implementations();
 }
 
+#[cfg(test)]
+pub(crate) fn poll_display_refresh_for_test(app: &mut KooladeApp, ctx: &egui::Context) {
+    app.poll_display_refresh(ctx);
+}
+
 impl KooladeApp {
     pub(super) fn tick(&mut self, _dt: f32, ctx: &egui::Context) {
         self.surface_time_ledger_errors();

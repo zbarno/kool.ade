@@ -44,6 +44,12 @@ test-group = 'rootless-docker'
 filter = 'test(/^execution::docker::backend::tests::docker_engine::system_image::approved_polyglot_composite_is_cached_and_isolated_across_tasks$/)'
 test-group = 'rootless-docker'
 
+# These cases manipulate persistent image state on the shared rootless daemon;
+# keep them apart from the other Docker-intensive cases in this group.
+[[profile.default.overrides]]
+filter = 'test(/^execution::docker::backend::tests::docker_engine::(composite_persistence::squatter::planted_derived_tag_squats_recover_non_destructively_and_preserve_foreign_data|system_image::approved_python_go_composite_runs_without_host_access_or_network)$/)'
+test-group = 'rootless-docker'
+
 [profile.default.junit]
 path = "nextest.xml"
 report-skipped = "all"
