@@ -24,9 +24,9 @@
 //!   the ownership-gated contract and a typed error is returned. The
 //!   probe converts "we don't know what's in the image" into an
 //!   observable engine contract instead of an invisible hang.
-//! - **Exec**: attached, output drained (discarded — observability
-//!   widening of the port is a later slice), exit code polled from the
-//!   engine with a hard cap so the port always resolves.
+//! - **Exec**: attached, output drained into BOUNDED tails
+//!   ([`CapturedExecReport`]), exit code polled from the engine with a
+//!   hard cap so the port always resolves.
 //! - **Verification gates** honor the session layer's epistemics:
 //!   `verify_absent` is TRUE only on a definitive engine
 //!   not-found; any other error means UNKNOWN, and unknown is NOT
@@ -55,8 +55,9 @@ use std::time::{Duration, Instant};
 
 use super::engine::DockerEndpoint;
 use super::provider_session::{
-    MountKind, OWNERSHIP_LABEL_KEY, OWNERSHIP_LABEL_VALUE, ProviderContainerSpec,
-    ProviderExecutorPort, ProviderNetworkMode, ProviderSessionError, validate_image_pin,
+    CapturedExecReport, MountKind, OWNERSHIP_LABEL_KEY, OWNERSHIP_LABEL_VALUE,
+    ProviderContainerSpec, ProviderExecutorPort, ProviderNetworkMode, ProviderSessionError,
+    TailCollector, validate_image_pin,
 };
 
 /// Wall-clock cap for the keeper liveness probe. Normal success takes TWO
@@ -404,12 +405,29 @@ impl ProviderExecutorPort for ProviderContainerDriver {
         })
     }
 
-    fn exec(&mut self, name: &str, argv: &[String]) -> Result<i32, ProviderSessionError> {
+    fn exec(
+        &mut self,
+        name: &str,
+        argv: &[String],
+    ) -> Result<CapturedExecReport, ProviderSessionError> {
         let hard_stop = Instant::now() + EXEC_HARD_CAP;
         let docker = self.docker.clone();
         let owned = name.to_string();
         let argv: Vec<String> = argv.to_vec();
         self.rt.block_on(async move {
+            // Sentinel: the init value is unreachable (the cap arm always
+            // returns); it exists solely to make the collectors definite
+            // past the `select!`. Flow analysis therefore flags the
+            // initializer as unread by design.
+            #[allow(unused_assignments)]
+            let mut collected: Result<
+                (TailCollector, TailCollector, Option<EngineError>),
+                ProviderSessionError,
+            > = Err(ProviderSessionError::EngineOperationFailed {
+                phase: "exec(drain)",
+                name: owned.clone(),
+                cause: "internal: stream collectors missing after the attached arm".into(),
+            });
             let pre = docker
                 .inspect_container(&owned, None)
                 .await
@@ -448,19 +466,58 @@ impl ProviderExecutorPort for ProviderContainerDriver {
                 .map_err(|error| engine_phase_error("exec(start)", &owned, error))?
             {
                 bollard::exec::StartExecResults::Attached { mut output, .. } => {
-                    // Drain until the exec closes its streams. Output is
-                    // discarded in v1; the port gains observability in a
-                    // later slice (documented residual). The stream body
-                    // is the ONE bollard segment exempt from the client
-                    // request timeout, so it carries its own bound — the
-                    // SAME absolute cap the termination poll uses below —
-                    // or the "always resolves" promise has a hole in it.
+                    // Drain until the exec closes its streams, capturing
+                    // BOUNDED tails of both streams (full transcripts are
+                    // a deliberate non-goal: worker results ride the
+                    // provider's own result conventions inside the
+                    // output). The stream body is the ONE bollard segment
+                    // exempt from the client request timeout, so it
+                    // carries its own bound — the SAME absolute cap the
+                    // termination poll uses below — or the "always
+                    // resolves" promise has a hole in it.
+                    use bollard::container::LogOutput as ExecFrame;
                     use futures_util::StreamExt as _;
-                    let drain = async move {
-                        while output.next().await.is_some() {}
+                    let collect = async move {
+                        let mut stdout_collector = TailCollector::default();
+                        let mut stderr_collector = TailCollector::default();
+                        let mut stream_fault: Option<EngineError> = None;
+                        while let Some(element) = output.next().await {
+                            match element {
+                                Ok(ExecFrame::StdOut { message }) => {
+                                    stdout_collector.ingest(&message)
+                                }
+                                Ok(ExecFrame::StdErr { message }) => {
+                                    stderr_collector.ingest(&message)
+                                }
+                                // House parity (tty-off, no-stdin exec
+                                // shape): console bytes count as stdout.
+                                // StdIn cannot occur on this shape;
+                                // ignoring it is defensive.
+                                Ok(ExecFrame::Console { message }) => {
+                                    stdout_collector.ingest(&message)
+                                }
+                                Ok(ExecFrame::StdIn { .. }) => {}
+                                Err(error) => {
+                                    stream_fault = Some(error);
+                                    break;
+                                }
+                            }
+                        }
+                        (stdout_collector, stderr_collector, stream_fault)
                     };
+                    // The cap arm owns its payload outright (arm scopes are
+                    // disjoint from the surviving post-select scope), so it
+                    // takes a clone; the surviving scope keeps `owned`.
+                    let name_snapshot = owned.clone();
+                    // Biased with the completed-drain arm first: if the
+                    // stream closes on the same tick the cap expires, a
+                    // HEALTHY completion must win the tie, not degrade
+                    // into a spurious exec(cap) diagnosis.
                     tokio::select! {
-                        _ = drain => {}
+                        biased;
+                        collected_streams = collect => {
+                            collected = Ok(collected_streams);
+                        }
                         _ =
                             tokio::time::sleep_until(tokio::time::Instant::from_std(
                                 hard_stop,
@@ -474,7 +531,7 @@ impl ProviderExecutorPort for ProviderContainerDriver {
                             // (pids/mem/CPU caps) keeps that survivable.
                             return Err(ProviderSessionError::EngineOperationFailed {
                                 phase: "exec(cap)",
-                                name: owned,
+                                name: name_snapshot,
                                 cause: "contained exec stream outlived the wall-clock hard cap".into(),
                             });
                         }
@@ -488,20 +545,34 @@ impl ProviderExecutorPort for ProviderContainerDriver {
                     });
                 }
             }
+            let (stdout_collector, stderr_collector, stream_fault) = collected?;
+            if let Some(fault) = stream_fault {
+                return Err(engine_phase_error("exec(stream)", &owned, fault));
+            }
             let cap_deadline = hard_stop;
             loop {
                 match docker.inspect_exec(&exec.id).await {
                     Ok(status) => {
                         if status.running == Some(false) {
                             return match status.exit_code {
-                                Some(code) => i32::try_from(code).map_err(|_| {
-                                    ProviderSessionError::EngineOperationFailed {
-                                        phase: "exec(exit)",
-                                        name: owned,
-                                        cause: "engine reported an out-of-i32-range exit code"
-                                            .into(),
-                                    }
-                                }),
+                                Some(code) => i32::try_from(code)
+                                    .map(|exit_code| CapturedExecReport {
+                                        exit_code,
+                                        stdout_tail: stdout_collector.render_utf8_lossy(),
+                                        stderr_tail: stderr_collector.render_utf8_lossy(),
+                                        stdout_bytes: stdout_collector.total_bytes(),
+                                        stderr_bytes: stderr_collector.total_bytes(),
+                                        stdout_truncated: stdout_collector.truncated(),
+                                        stderr_truncated: stderr_collector.truncated(),
+                                    })
+                                    .map_err(|_| {
+                                        ProviderSessionError::EngineOperationFailed {
+                                            phase: "exec(exit)",
+                                            name: owned,
+                                            cause: "engine reported an out-of-i32-range exit code"
+                                                .into(),
+                                        }
+                                    }),
                                 None => Err(ProviderSessionError::EngineOperationFailed {
                                     phase: "exec(exit)",
                                     name: owned,
@@ -809,13 +880,19 @@ mod tests {
         driver
             .create(&spec)
             .expect("keeper container starts and stabilizes");
-        let exit = driver
+        let report = driver
             .exec(&spec.container_name, &argv)
             .expect("exec resolves with a verdict");
         assert_eq!(
-            exit, expected_exit,
+            report.exit_code, expected_exit,
             "operator-provisioned image/argv contract broken; expected {expected_exit}"
         );
+        if argv == ["printf".to_string(), "ok".to_string()] {
+            assert_eq!(
+                report.stdout_tail, "ok\n",
+                "default oracle stdout must survive the captured report"
+            );
+        }
         driver
             .terminate(&spec.container_name)
             .expect("polite stop completes");

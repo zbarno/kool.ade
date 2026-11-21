@@ -379,12 +379,87 @@ pub fn validate_image_pin(
     })
 }
 
+/// Bounded capture capacity for one exec stream's retained tail. Larger
+/// outputs are counted in full but only the newest bytes are kept.
+pub const EXEC_REPORT_TAIL_CAPACITY: u64 = 64 * 1024;
+
+/// Incremental tail collector: counts EVERY byte ingested and retains only
+/// the newest [`EXEC_REPORT_TAIL_CAPACITY`] bytes per stream. Rendering is
+/// lossy UTF-8 at report time (binary provider output must never wedge a
+/// session).
+#[derive(Debug, Default, Clone)]
+pub struct TailCollector {
+    buf: std::collections::VecDeque<u8>,
+    total: u64,
+}
+
+impl TailCollector {
+    /// Ingest one frame. Invariant: AFTER every return, the retained
+    /// window is at most [`EXEC_REPORT_TAIL_CAPACITY`] bytes (extend-
+    /// then-evict; intra-call peak is `capacity + chunk_len`, reclaimed
+    /// before this returns). `total` counts EVERY byte, saturated.
+    pub fn ingest(&mut self, chunk: &[u8]) {
+        self.total = self.total.saturating_add(chunk.len() as u64);
+        self.buf.extend(chunk.iter().copied());
+        while self.buf.len() as u64 > EXEC_REPORT_TAIL_CAPACITY {
+            self.buf.pop_front();
+        }
+    }
+
+    pub fn total_bytes(&self) -> u64 {
+        self.total
+    }
+
+    pub fn truncated(&self) -> bool {
+        self.total > self.buf.len() as u64
+    }
+
+    pub fn render_utf8_lossy(&self) -> String {
+        let retained: Vec<u8> = self.buf.iter().copied().collect();
+        String::from_utf8_lossy(&retained).into_owned()
+    }
+}
+
+/// Terminal evidence for ONE contained exec: the engine exit code plus
+/// bounded tails of both attached streams. The port deliberately conveys
+/// tails, not full transcripts: worker results ride the provider's own
+/// result conventions inside the output; everything else is diagnostic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapturedExecReport {
+    pub exit_code: i32,
+    pub stdout_tail: String,
+    pub stderr_tail: String,
+    pub stdout_bytes: u64,
+    pub stderr_bytes: u64,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
+}
+
+impl CapturedExecReport {
+    /// An exit code with no captured output (fixtures, refusing stubs).
+    pub fn bare(exit_code: i32) -> Self {
+        Self {
+            exit_code,
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+            stdout_bytes: 0,
+            stderr_bytes: 0,
+            stdout_truncated: false,
+            stderr_truncated: false,
+        }
+    }
+}
+
 /// Port over which sessions drive the container engine. Kept behind a trait
 /// so the skeleton is testable without a live daemon; production adapters
 /// land in a later slice.
 pub trait ProviderExecutorPort {
     fn create(&mut self, spec: &ProviderContainerSpec) -> Result<(), ProviderSessionError>;
-    fn exec(&mut self, name: &str, argv: &[String]) -> Result<i32, ProviderSessionError>;
+    fn exec(
+        &mut self,
+        name: &str,
+        argv: &[String],
+    ) -> Result<CapturedExecReport, ProviderSessionError>;
     fn terminate(&mut self, name: &str) -> Result<(), ProviderSessionError>;
     fn verify_absent(&mut self, name: &str) -> bool;
     fn remove(&mut self, name: &str) -> Result<(), ProviderSessionError>;
@@ -400,7 +475,7 @@ impl ProviderExecutorPort for RefusingUnpinnedExecutor {
     fn create(&mut self, _: &ProviderContainerSpec) -> Result<(), ProviderSessionError> {
         Err(ProviderSessionError::ImageNotPinned)
     }
-    fn exec(&mut self, _: &str, _: &[String]) -> Result<i32, ProviderSessionError> {
+    fn exec(&mut self, _: &str, _: &[String]) -> Result<CapturedExecReport, ProviderSessionError> {
         Err(ProviderSessionError::ImageNotPinned)
     }
     fn terminate(&mut self, _: &str) -> Result<(), ProviderSessionError> {
@@ -533,9 +608,13 @@ mod tests {
             self.calls.borrow_mut().push("create");
             Ok(())
         }
-        fn exec(&mut self, _: &str, _: &[String]) -> Result<i32, ProviderSessionError> {
+        fn exec(
+            &mut self,
+            _: &str,
+            _: &[String],
+        ) -> Result<CapturedExecReport, ProviderSessionError> {
             self.calls.borrow_mut().push("exec");
-            Ok(0)
+            Ok(CapturedExecReport::bare(0))
         }
         fn terminate(&mut self, _: &str) -> Result<(), ProviderSessionError> {
             self.calls.borrow_mut().push("terminate");
@@ -770,8 +849,12 @@ mod tests {
         fn create(&mut self, _: &ProviderContainerSpec) -> Result<(), ProviderSessionError> {
             Ok(())
         }
-        fn exec(&mut self, _: &str, _: &[String]) -> Result<i32, ProviderSessionError> {
-            Ok(0)
+        fn exec(
+            &mut self,
+            _: &str,
+            _: &[String],
+        ) -> Result<CapturedExecReport, ProviderSessionError> {
+            Ok(CapturedExecReport::bare(0))
         }
         fn terminate(&mut self, _: &str) -> Result<(), ProviderSessionError> {
             // Pretends to terminate but the container stays present.
@@ -831,5 +914,62 @@ mod tests {
             validate_image_pin(&ref_pin, &format!("sha256:{d64}")).is_ok(),
             "canonical lock form must be accepted"
         );
+    }
+
+    #[test]
+    fn tail_collector_counts_all_bytes_but_retains_only_the_capacity_window() {
+        let mut tc = TailCollector::default();
+        tc.ingest(b"hello ");
+        tc.ingest(b"world");
+        assert_eq!(tc.total_bytes(), 11);
+        assert!(!tc.truncated());
+        assert_eq!(tc.render_utf8_lossy(), "hello world");
+
+        let bulk = vec![b'x'; EXEC_REPORT_TAIL_CAPACITY as usize + 5];
+        let mut overflowing = TailCollector::default();
+        overflowing.ingest(&bulk);
+        assert_eq!(overflowing.total_bytes(), EXEC_REPORT_TAIL_CAPACITY + 5);
+        assert!(overflowing.truncated());
+        assert_eq!(
+            overflowing.render_utf8_lossy().len(),
+            EXEC_REPORT_TAIL_CAPACITY as usize,
+            "the retained window is exactly the capacity"
+        );
+    }
+
+    #[test]
+    fn tail_collector_keeps_the_window_exact_across_alternating_ingests() {
+        let cap = EXEC_REPORT_TAIL_CAPACITY as usize;
+        let mut tc = TailCollector::default();
+        // Alternating chunks crossing the boundary repeatedly: the
+        // window must be exact-after-every-ingest, not just at the end.
+        let chunk_a = vec![b'a'; cap / 2 + 7];
+        let chunk_b = vec![b'b'; cap / 3 + 11];
+        let mut cumulative: u64 = 0;
+        for i in 0..4 {
+            let chunk = if i % 2 == 0 { &chunk_a } else { &chunk_b };
+            tc.ingest(chunk);
+            cumulative += chunk.len() as u64;
+            assert_eq!(tc.total_bytes(), cumulative);
+            if tc.truncated() {
+                assert_eq!(
+                    tc.render_utf8_lossy().len(),
+                    cap,
+                    "retained window is exactly the capacity once truncated"
+                );
+            }
+        }
+        assert!(tc.truncated());
+        assert_eq!(tc.render_utf8_lossy().len(), cap);
+    }
+
+    #[test]
+    fn tail_collector_renders_invalid_utf8_lossy_instead_of_panicking() {
+        let mut tc = TailCollector::default();
+        tc.ingest(&[0xFF, 0xFE, b'a']);
+        assert_eq!(tc.total_bytes(), 3);
+        let rendered = tc.render_utf8_lossy();
+        assert!(rendered.ends_with('a'));
+        assert!(!rendered.is_ascii(), "replacement chars are non-ascii");
     }
 }
