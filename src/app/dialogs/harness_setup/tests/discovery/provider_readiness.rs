@@ -11,6 +11,7 @@ fn verified_profiles_enable_provider_roles_without_a_docker_target() {
     fs::create_dir(&root).unwrap();
     for (id, version) in [
         ("pi", "0.30.1"),
+        ("codex", "1.0.0"),
         ("opencode", "1.0.0"),
         ("copilot", "1.0.0"),
         ("antigravity", "1.0.0"),
@@ -51,7 +52,7 @@ fn verified_profiles_enable_provider_roles_without_a_docker_target() {
         );
         assert_eq!(
             snapshot.supports_role(HarnessRole::Manager),
-            id == "pi",
+            matches!(id, "pi" | "codex"),
             "Manager investigation is app-brokered and remains usable without Docker for {id}"
         );
         assert!(
@@ -84,7 +85,7 @@ fn verified_profiles_enable_provider_roles_without_a_docker_target() {
         assert!(!snapshot.supports_role(HarnessRole::Implementer), "{id}");
         assert_eq!(
             snapshot.supports_profile(crate::harness::ExecutionProfile::Manager),
-            id == "pi",
+            matches!(id, "pi" | "codex"),
             "{id}"
         );
 
@@ -101,56 +102,6 @@ fn verified_profiles_enable_provider_roles_without_a_docker_target() {
         assert_eq!(refreshed.docker_mcp_bridge, ReadinessState::Ready, "{id}");
         assert!(refreshed.supports_role(HarnessRole::Implementer), "{id}");
     }
-    let mut codex = report(true);
-    codex.id = "codex".into();
-    codex.executable = Some(root.join("codex").to_string_lossy().into_owned());
-    fs::write(root.join("codex"), "synthetic provider executable").unwrap();
-    let mut codex_settings = HarnessSettings::default();
-    super::super::super::discovery::apply_probe_results(
-        &mut codex_settings,
-        &[codex.clone()],
-        None,
-        1,
-    );
-    let codex_snapshot = codex_settings.discovered["codex"]
-        .capability_snapshot
-        .as_ref()
-        .unwrap();
-    assert!(
-        codex_snapshot
-            .modes
-            .iter()
-            .all(|mode| mode.available == ReadinessState::Unavailable)
-    );
-    assert!(
-        codex_snapshot
-            .roles
-            .iter()
-            .all(|role| role.available == ReadinessState::Unavailable)
-    );
-    let mut codex_report = codex;
-    super::super::super::discovery::update_runtime_readiness(
-        &mut codex_settings,
-        std::slice::from_mut(&mut codex_report),
-        true,
-    );
-    let refreshed_codex = codex_settings.discovered["codex"]
-        .capability_snapshot
-        .as_ref()
-        .unwrap();
-    assert!(
-        refreshed_codex
-            .modes
-            .iter()
-            .all(|mode| mode.available == ReadinessState::Unavailable)
-    );
-    assert!(
-        refreshed_codex
-            .roles
-            .iter()
-            .all(|role| role.available == ReadinessState::Unavailable)
-    );
-
     let mut claude = report(true);
     claude.id = "claude".into();
     claude.executable = Some("/synthetic/bin/claude".into());

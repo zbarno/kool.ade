@@ -1,9 +1,9 @@
 //! Adapter boundary E2E: fake CLIs exercise each enabled production `AiHarness`
-//! process path and normalized result for four providers across eight modes;
-//! Codex and Claude are checked for rejection before task-process creation.
+//! process path and normalized result for five providers across all modes;
+//! Claude is checked for rejection before task-process creation.
 //! Parser-only unit tests cannot prove argv construction, child supervision, or
 //! the blocked launch boundary together. No Docker/network dependency; setup
-//! creates six temporary scripts and starts four providers per mode.
+//! creates six temporary scripts and starts five providers per mode.
 
 use super::{
     AiHarness, AntigravityHarness, ClaudeHarness, CodexHarness, CopilotHarness, ExecutionMode,
@@ -21,7 +21,7 @@ const MATRIX_RESULT: &str = "matrix-result";
 
 #[cfg(unix)]
 #[test]
-fn supported_providers_normalize_results_and_managed_hook_providers_stay_blocked() {
+fn supported_providers_normalize_results_and_claude_stays_blocked() {
     use std::os::unix::fs::PermissionsExt;
 
     let root = std::env::temp_dir().join(format!(
@@ -84,7 +84,7 @@ fn supported_providers_normalize_results_and_managed_hook_providers_stay_blocked
     for (provider, _, _) in providers {
         for mode in MODES {
             let request = request(root.clone(), mode);
-            if matches!(provider, "codex" | "claude") {
+            if provider == "claude" {
                 let error = execute(provider, &request).unwrap_err();
                 assert!(
                     error.detail().contains("organization-managed hooks"),
@@ -104,7 +104,7 @@ fn supported_providers_normalize_results_and_managed_hook_providers_stay_blocked
             assert_reasoning_argument(provider, &argument_capture(&root, provider));
         }
     }
-    for provider in ["pi", "opencode", "copilot", "antigravity"] {
+    for provider in ["pi", "codex", "opencode", "copilot", "antigravity"] {
         let capture = argument_capture(&root, provider);
         let before = fs::read(&capture).unwrap();
         let mut invalid = request(root.clone(), ExecutionMode::Planning);
@@ -124,7 +124,7 @@ fn supported_providers_normalize_results_and_managed_hook_providers_stay_blocked
 
 #[cfg(not(unix))]
 #[test]
-fn supported_providers_normalize_results_and_managed_hook_providers_stay_blocked() {}
+fn supported_providers_normalize_results_and_claude_stays_blocked() {}
 
 fn execute(
     provider: &str,

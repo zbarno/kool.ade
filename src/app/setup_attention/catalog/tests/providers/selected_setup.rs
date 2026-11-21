@@ -44,7 +44,7 @@ fn claude_task_block_is_reported_separately_from_authentication_and_model_gaps()
 }
 
 #[test]
-fn codex_task_block_guidance_names_the_selected_provider() {
+fn ready_codex_is_not_reported_as_managed_hook_blocked() {
     let mut codex = agent(ReadinessState::Ready);
     codex.provider_id = "codex".into();
     codex.run_generation = 4;
@@ -63,18 +63,14 @@ fn codex_task_block_guidance_names_the_selected_provider() {
         4,
         super::GitProbeV1::not_run(),
     );
-    let finding = snapshot
-        .findings
-        .iter()
-        .find(|finding| finding.id == "setup:cli:codex:capability")
-        .expect("Codex execution should have a provider-specific safety finding");
-
-    assert!(finding.title.contains("Codex"));
-    assert!(finding.next_step.contains("another provider"));
-    assert!(finding.next_step.contains("Codex"));
-    assert!(!finding.next_step.contains("Claude Code"));
     assert!(
         !snapshot
+            .findings
+            .iter()
+            .any(|finding| finding.id == "setup:cli:codex:capability")
+    );
+    assert!(
+        snapshot
             .checked_domains
             .iter()
             .any(|domain| domain == "cli:codex")
@@ -160,13 +156,13 @@ fn checked_install_domain_accepts_a_current_default_scan_with_a_missing_setup_sc
             .any(|domain| domain == "cli:install")
     );
     assert!(
-        !snapshot
+        snapshot
             .checked_domains
             .iter()
             .any(|domain| domain == "cli:select")
     );
     assert!(
-        !snapshot
+        snapshot
             .checked_domains
             .iter()
             .any(|domain| domain == "cli:codex")

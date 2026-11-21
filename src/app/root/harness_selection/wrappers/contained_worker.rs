@@ -1,6 +1,6 @@
-//! Contained worker harness: routed Worker-role Codex/Claude work executes
-//! inside its SEALED provider namespace instead of on the host (#591
-//! phase 4, wiring slice A).
+//! Contained worker harness for admitted Claude Worker routes (#591 phase 4).
+//! Codex currently uses the host route; its managed-policy risk is tracked in
+//! #725. This wrapper remains capable of planning either contained provider.
 //!
 //! Admission was decided upstream at selection time — this wrapper only
 //! exists on routes that already passed the containment evaluator's
@@ -149,7 +149,7 @@ impl ContainedWorkerHarness {
     }
 
     /// The provider this wrapper encloses. Construction happens only at
-    /// the routed seam for codex/claude, so this cannot realistically
+    /// the routed seam for admitted providers, so this cannot realistically
     /// miss; fail loud if it ever does.
     fn provider(&self) -> CliProvider {
         CliProvider::from_id(&self.harness_id).unwrap_or_else(|| {

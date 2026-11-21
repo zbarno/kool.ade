@@ -111,7 +111,10 @@ pub(super) fn run(
                 }
             }
             Ok(StreamEvt::Exited(ok)) => {
-                if let Some(error) = resource_attention(resource_bridge, &req.progress_tx) {
+                if let Some(error) = crate::harness::resource_bridge::resource_attention(
+                    resource_bridge,
+                    &req.progress_tx,
+                ) {
                     return Err(error);
                 }
                 if !ok {
@@ -126,7 +129,10 @@ pub(super) fn run(
                 break;
             }
             Err(crate::harness::pi_proc::PollState::Closed) => {
-                if let Some(error) = resource_attention(resource_bridge, &req.progress_tx) {
+                if let Some(error) = crate::harness::resource_bridge::resource_attention(
+                    resource_bridge,
+                    &req.progress_tx,
+                ) {
                     return Err(error);
                 }
                 // Pipe disconnected without an Exited event (defensive).
@@ -144,7 +150,9 @@ pub(super) fn run(
     let mut final_progress = fold.preview();
     final_progress.telemetry.launch_profile = Some(launch_profile);
     let _ = req.progress_tx.send(final_progress);
-    if let Some(error) = resource_attention(resource_bridge, &req.progress_tx) {
+    if let Some(error) =
+        crate::harness::resource_bridge::resource_attention(resource_bridge, &req.progress_tx)
+    {
         return Err(error);
     }
     let final_text = std::mem::take(&mut fold.final_assistant_text);
@@ -181,27 +189,4 @@ pub(super) fn run(
         envelope: None,
         stderr_tail: tail(&stderr_tail),
     })
-}
-
-fn resource_attention(
-    bridge: Option<&crate::harness::resource_bridge::ResourceBridge>,
-    progress: &std::sync::mpsc::Sender<crate::harness::LiveProgress>,
-) -> Option<AppError> {
-    let bridge = bridge?;
-    if let Some(request) = bridge.dependency_request() {
-        let detail = request.summary();
-        let _ = progress.send(crate::harness::LiveProgress {
-            activity: Some("Dependency request needs authorization".into()),
-            dependency_requests: vec![request.clone()],
-            ..Default::default()
-        });
-        if request.status != crate::harness::DependencyRequestStatus::Prepared {
-            return Some(AppError::Other(format!(
-                "Needs Attention: a specific dependency request needs review. {detail}"
-            )));
-        }
-    }
-    bridge.attention_detail().map(|detail| AppError::Other(format!(
-        "Needs Attention: the worker requested a resource that requires operator review. {detail}"
-    )))
 }

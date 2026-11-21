@@ -27,6 +27,7 @@ use context::BrokerContext;
 use guards::{InFlightRequest, TemporaryDirectoryGuard};
 use std::{
     fs, io,
+    os::unix::fs::MetadataExt,
     os::unix::net::UnixListener,
     path::{Path, PathBuf},
     sync::{
@@ -39,6 +40,7 @@ use std::{
 
 pub(crate) struct ResourceBridge {
     socket: PathBuf,
+    socket_identity: (u64, u64),
     task_id: Option<String>,
     cache_dir: PathBuf,
     #[cfg(test)]
@@ -55,7 +57,9 @@ pub(crate) struct ResourceBridge {
     execution_session: Arc<Mutex<Option<Arc<crate::execution::session::ExecutionSession>>>>,
     cancel: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
-    worker: Option<thread::JoinHandle<()>>,
+    admission_stop: Arc<AtomicBool>,
+    failed: Arc<AtomicBool>,
+    worker: Mutex<Option<thread::JoinHandle<()>>>,
     requests: Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
     temp: PathBuf,
 }
@@ -140,15 +144,20 @@ impl ResourceBridge {
         );
         let listener = UnixListener::bind(&socket)?;
         set_private_file(&socket)?;
+        let socket_metadata = fs::symlink_metadata(&socket)?;
+        let socket_identity = (socket_metadata.dev(), socket_metadata.ino());
         listener.set_nonblocking(true)?;
         let stop = Arc::new(AtomicBool::new(false));
+        let admission_stop = Arc::new(AtomicBool::new(false));
+        let failed = Arc::new(AtomicBool::new(false));
+        let thread_admission_stop = admission_stop.clone();
+        let thread_failed = failed.clone();
         let attention = Arc::new(Mutex::new(None));
         let pending_dependency = Arc::new(Mutex::new(Vec::new()));
         let execution_session = Arc::new(Mutex::new(None));
         let request_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let in_flight_requests = Arc::new(AtomicUsize::new(0));
         let downloaded_bytes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let thread_stop = stop.clone();
         let thread_attention = attention.clone();
         let thread_dependency = pending_dependency.clone();
         let thread_execution_session = execution_session.clone();
@@ -183,11 +192,12 @@ impl ResourceBridge {
         let thread_requests = Arc::new(Mutex::new(Vec::new()));
         let accepting_requests = thread_requests.clone();
         let worker = thread::spawn(move || {
-            while !thread_stop.load(Ordering::Relaxed) {
+            while !thread_admission_stop.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((client, _)) => {
-                        reap_finished_requests(&accepting_requests);
+                        reap_finished_requests(&accepting_requests, &thread_failed);
                         if !acquire_request_slot(&thread_in_flight_requests) {
+                            thread_failed.store(true, Ordering::Relaxed);
                             drop(client);
                             continue;
                         }
@@ -217,6 +227,7 @@ impl ResourceBridge {
                         let pip_operations = thread_pip_operations.clone();
                         let go_operations = thread_go_operations.clone();
                         let before_authorized = thread_before_authorized.clone();
+                        let request_failed = thread_failed.clone();
                         let cargo_cache = thread_cargo_cache.clone();
                         let cargo_cache_gate = thread_cargo_cache_gate.clone();
                         let pip_cache = thread_pip_cache.clone();
@@ -260,7 +271,9 @@ impl ResourceBridge {
                                 pip_cache_gate: &pip_cache_gate,
                                 go_cache_gate: &go_cache_gate,
                             };
-                            let _ = server::serve(client, &context);
+                            if server::serve(client, &context).is_err() {
+                                request_failed.store(true, Ordering::Relaxed);
+                            }
                         });
                         if let Ok(mut workers) = accepting_requests.lock() {
                             workers.push(request_worker);
@@ -269,12 +282,33 @@ impl ResourceBridge {
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(20));
                     }
-                    Err(_) => break,
+                    Err(_) => {
+                        thread_failed.store(true, Ordering::Relaxed);
+                        break;
+                    }
                 }
+            }
+            // A connected request that was still queued when admission closed
+            // has an unknown outcome and must prevent successful completion.
+            match listener.accept() {
+                Ok(_) => match thread_attention.lock() {
+                    Ok(mut pending) => {
+                        if pending.is_none() {
+                            *pending = Some(
+                                "A resource request was still queued when the worker exited."
+                                    .into(),
+                            );
+                        }
+                    }
+                    Err(_) => thread_failed.store(true, Ordering::Relaxed),
+                },
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                Err(_) => thread_failed.store(true, Ordering::Relaxed),
             }
         });
         let bridge = Self {
             socket,
+            socket_identity,
             task_id: task_id.map(str::to_owned),
             cache_dir,
             #[cfg(test)]
@@ -291,7 +325,9 @@ impl ResourceBridge {
             execution_session,
             cancel,
             stop,
-            worker: Some(worker),
+            admission_stop,
+            failed,
+            worker: Mutex::new(Some(worker)),
             requests: thread_requests,
             temp,
         };

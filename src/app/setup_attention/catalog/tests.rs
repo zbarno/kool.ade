@@ -92,7 +92,7 @@ fn rootful_docker_does_not_hide_authenticated_cli_or_invent_image_error() {
             .any(|finding| finding.id == "setup:docker:rootless")
     );
     assert!(
-        snapshot
+        !snapshot
             .findings
             .iter()
             .any(|finding| finding.id == "setup:cli:codex:capability")
@@ -124,7 +124,7 @@ fn missing_image_is_only_a_finding_after_healthy_engine_probe() {
             )
     }));
     assert!(
-        snapshot
+        !snapshot
             .findings
             .iter()
             .any(|finding| finding.id == "setup:cli:codex:capability")
@@ -339,7 +339,8 @@ fn selected_agent_and_mac_desktop_both_have_independent_readiness() {
             && finding.status == FindingStatus::Unsupported
     }));
     assert!(
-        snap.findings
+        !snap
+            .findings
             .iter()
             .any(|finding| finding.id == "setup:cli:codex:capability")
     );

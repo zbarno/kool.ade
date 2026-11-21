@@ -4,7 +4,6 @@ use super::provider_eligibility::{
 };
 
 const CLAUDE_TASK_EXECUTION_BLOCK: &str = "Claude Code execution is unavailable in Kool.ad/e until organization-managed hooks can be contained; the CLI does not provide a supported way to disable them while keeping normal sign-in.";
-const CODEX_TASK_EXECUTION_BLOCK: &str = "Codex execution is unavailable in Kool.ad/e until organization-managed hooks can be contained; feature-disable flags do not override admin-enforced hook policy.";
 
 pub(crate) fn task_execution_block_reason(id: &str) -> Option<&'static str> {
     let id = id.trim();
@@ -13,11 +12,6 @@ pub(crate) fn task_execution_block_reason(id: &str) -> Option<&'static str> {
         .any(|name| id.eq_ignore_ascii_case(name))
     {
         Some(CLAUDE_TASK_EXECUTION_BLOCK)
-    } else if ["codex", "codex cli"]
-        .iter()
-        .any(|name| id.eq_ignore_ascii_case(name))
-    {
-        Some(CODEX_TASK_EXECUTION_BLOCK)
     } else {
         None
     }
@@ -25,7 +19,7 @@ pub(crate) fn task_execution_block_reason(id: &str) -> Option<&'static str> {
 
 /// Evidence-aware successor of [`task_execution_block_reason`].
 ///
-/// Codex/Claude are no longer *unconditionally* blocked: when the capability
+/// Claude is no longer *unconditionally* blocked: when the capability
 /// evidences all positively (validated platform, verified rootless engine,
 /// digest-pinned contained image, recorded managed-hook containment
 /// attestation), execution is ADMITTED. Until those evidences exist —
@@ -58,7 +52,7 @@ pub(crate) fn profile_block_reason(
     let id = canonical_provider_id(id);
     let provider = CliProvider::from_id(&id);
     match (profile, provider) {
-        (Manager, Some(CliProvider::Pi)) => None,
+        (Manager, Some(CliProvider::Pi | CliProvider::Codex)) => None,
         (Manager, Some(CliProvider::Antigravity)) => Some(
             "Antigravity is available for worker use, but not for Man.ager: Kool.ad/e cannot verify suppression of its ambient instruction and managed-policy sources.",
         ),
@@ -68,7 +62,7 @@ pub(crate) fn profile_block_reason(
         (Manager, Some(CliProvider::Copilot)) => Some(
             "GitHub Copilot CLI is available for worker use, but not for Man.ager until its installed CLI and managed policy are verified to suppress ambient instructions and extensions.",
         ),
-        (Manager, Some(CliProvider::Codex | CliProvider::Claude)) => {
+        (Manager, Some(CliProvider::Claude)) => {
             // Manager stays legacy-static: #451 separates strict Manager
             // readiness from Worker containment; its evidence ladder is a
             // later slice. Worker adoption flows through the evaluator
@@ -151,8 +145,6 @@ mod tests {
         // evidence-aware facade reproduces the historic block byte-for-byte.
         let none = ProviderContainmentEvidence::default();
         for (id, legacy) in [
-            ("codex", CODEX_TASK_EXECUTION_BLOCK),
-            ("Codex CLI", CODEX_TASK_EXECUTION_BLOCK),
             ("claude", CLAUDE_TASK_EXECUTION_BLOCK),
             ("claude code", CLAUDE_TASK_EXECUTION_BLOCK),
         ] {
@@ -162,11 +154,13 @@ mod tests {
                 "{id}"
             );
         }
+        assert_eq!(task_execution_block_reason_ctx("codex", &none), None);
+        assert_eq!(task_execution_block_reason_ctx("Codex CLI", &none), None);
         assert_eq!(task_execution_block_reason_ctx("pi", &none), None);
     }
 
     #[test]
-    fn complete_capability_evidence_admits_both_blocked_providers() {
+    fn complete_capability_evidence_admits_supported_providers() {
         for id in ["codex", "claude"] {
             assert_eq!(
                 task_execution_block_reason_ctx(id, &full_evidence()),
@@ -180,29 +174,22 @@ mod tests {
     fn single_missing_evidence_keeps_the_block_on_the_facade() {
         let mut partial = full_evidence();
         partial.hook_containment_attested = false;
-        for id in ["codex", "claude"] {
-            assert_eq!(
-                task_execution_block_reason_ctx(id, &partial).as_deref(),
-                Some(task_execution_block_reason(id).unwrap())
-            );
-        }
+        assert_eq!(
+            task_execution_block_reason_ctx("claude", &partial).as_deref(),
+            Some(CLAUDE_TASK_EXECUTION_BLOCK)
+        );
+        assert_eq!(task_execution_block_reason_ctx("codex", &partial), None);
     }
 
     #[test]
     fn profile_layer_matches_the_legacy_constants_while_no_evidence_is_provisioned() {
         use crate::harness::ExecutionProfile::{Manager, Worker};
-        assert_eq!(
-            profile_block_reason("codex", Worker),
-            Some(CODEX_TASK_EXECUTION_BLOCK)
-        );
+        assert_eq!(profile_block_reason("codex", Worker), None);
         assert_eq!(
             profile_block_reason("claude", Worker),
             Some(CLAUDE_TASK_EXECUTION_BLOCK)
         );
-        assert_eq!(
-            profile_block_reason("codex", Manager),
-            Some(CODEX_TASK_EXECUTION_BLOCK)
-        );
+        assert_eq!(profile_block_reason("codex", Manager), None);
         assert_eq!(
             profile_block_reason("claude", Manager),
             Some(CLAUDE_TASK_EXECUTION_BLOCK)

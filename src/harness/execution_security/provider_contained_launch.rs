@@ -30,8 +30,9 @@
 //!
 //! Wired (consumer landed): the worker-launch integration
 //! (`crate::app::root::harness_selection::wrappers::contained_worker`) drives
-//! this adapter for admitted Worker-role codex/claude routes; tests keep
-//! exercising the face directly.
+//! this adapter for admitted Worker-role Claude routes. Codex currently uses
+//! the host route with the risk tracked in #725; tests exercise this adapter
+//! directly for both supported provider types.
 
 use crate::execution::docker::provider_session::{
     CapturedExecReport, ProviderContainerSpec, ProviderExecutorPort, ProviderSpecBuilder,

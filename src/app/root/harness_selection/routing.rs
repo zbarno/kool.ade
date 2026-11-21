@@ -187,16 +187,13 @@ pub(super) fn routed_harness<'a>(
     {
         return Box::new(UnavailableHarness::guidance(reason.into()));
     }
-    // (#591 phase 4, wiring slice A) An ADMITTED worker-route for a
-    // controllable provider executes inside the sealed provider namespace,
-    // never on the host: reaching this point means the containment
-    // evaluator returned a runnable verdict for (provider, Worker), so the
-    // wrapper is the ONLY lawful executor for the route. Worker routes that
-    // are NOT admitted never reach this line (they returned above as
-    // blocked guidance), so this wrap cannot loosen any restriction.
+    // Claude retains its contained worker route. Codex uses the existing
+    // host CLI adapter while its managed-hook containment is tracked in #725.
     let harness: Box<dyn AiHarness> = if profile == crate::harness::ExecutionProfile::Worker
-        && matches!(harness_id, "codex" | "claude")
-    {
+        && matches!(
+            crate::harness::execution_security::CliProvider::from_id(harness_id),
+            Some(crate::harness::execution_security::CliProvider::Claude)
+        ) {
         Box::new(ContainedWorkerHarness::new(harness, harness_id.to_string())) as Box<dyn AiHarness>
     } else {
         harness

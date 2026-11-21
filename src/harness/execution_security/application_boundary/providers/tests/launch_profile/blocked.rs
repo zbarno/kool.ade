@@ -33,22 +33,26 @@ fn codex_argv() -> Vec<String> {
     ]
 }
 
-// Final launch boundary: a complete Codex profile still cannot start a task
-// while managed-hook execution is not contained. Metadata alone cannot stop
-// an alternate caller constructing a launch. This uses a synthetic binary and
-// requires no Docker, network, or provider account.
+// The existing validated Codex CLI profile is usable in both roles. This
+// does not establish containment of account-managed hooks; see issue #725.
 #[test]
-fn codex_task_launch_is_rejected_before_process_creation() {
-    let error = ValidatedProviderLaunch::bind(
-        complete_evidence(CliProvider::Codex, "99.0.0"),
-        codex_argv(),
-        Path::new("/tmp"),
-        vec![],
-    )
-    .err()
-    .expect("Codex task launch must remain blocked");
-
-    assert!(error.to_string().contains("organization-managed hooks"));
+fn codex_validated_launch_accepts_manager_and_worker_profiles() {
+    for mode in [
+        crate::harness::ExecutionMode::Manager,
+        crate::harness::ExecutionMode::ReadOnlyAnalysis,
+    ] {
+        assert!(
+            ValidatedProviderLaunch::bind_for_workspace(
+                complete_evidence(CliProvider::Codex, "99.0.0"),
+                mode,
+                codex_argv(),
+                Path::new("/tmp"),
+                vec![("CODEX_HOME".into(), "/tmp/codex-fixture".into())],
+                Path::new("/tmp"),
+            )
+            .is_ok()
+        );
+    }
 }
 
 // Production boundary: final validated launch binding used by `spawn_with_input`.

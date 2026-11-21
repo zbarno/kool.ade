@@ -153,7 +153,7 @@ fn runnable_provider_clis_pass_implementation_requests_through_the_shared_policy
         computer_use: None,
     };
 
-    for provider in ["pi", "antigravity", "opencode", "copilot"] {
+    for provider in ["pi", "codex", "antigravity", "opencode", "copilot"] {
         let calls = Arc::new(AtomicUsize::new(0));
         let harness = RoutedHarness {
             inner: Box::new(CountHarness(calls.clone(), "supported")),
@@ -165,7 +165,8 @@ fn runnable_provider_clis_pass_implementation_requests_through_the_shared_policy
         assert_eq!(calls.load(Ordering::SeqCst), 1, "{provider}");
     }
 
-    for provider in ["codex", "claude"] {
+    {
+        let provider = "claude";
         let calls = Arc::new(AtomicUsize::new(0));
         let harness = RoutedHarness {
             inner: Box::new(CountHarness(calls.clone(), "must not run")),

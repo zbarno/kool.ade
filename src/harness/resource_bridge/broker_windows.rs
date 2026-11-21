@@ -83,6 +83,10 @@ impl ResourceBridge {
         None
     }
 
+    pub(crate) fn close_admission(&self) -> Result<(), &'static str> {
+        Err("Docker resource brokering is unavailable on Windows")
+    }
+
     pub(crate) fn dependency_request(&self) -> Option<DependencyRequest> {
         None
     }

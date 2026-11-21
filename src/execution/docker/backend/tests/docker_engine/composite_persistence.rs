@@ -19,6 +19,9 @@
 
 use super::*;
 use std::time::Instant;
+
+#[path = "composite_persistence/squatter.rs"]
+mod squatter;
 use support::{committed_workspace, native_docker_arch};
 
 use crate::execution::{
@@ -53,14 +56,6 @@ fn docker_run(args: &[&str]) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
-
-fn normalized_image_id(raw: &str) -> String {
-    if raw.starts_with("sha256:") {
-        raw.to_owned()
-    } else {
-        format!("sha256:{raw}")
-    }
 }
 
 struct ReferenceCounters {
@@ -292,147 +287,4 @@ fn concurrent_same_recipe_preparers_converge_on_one_composite() {
     assert_eq!(proof.result.exit_code, Some(0), "{:?}", proof.result);
     assert!(proof.stdout.trim().ends_with("8"), "python must evaluate");
     let _ = (&first, &second);
-}
-
-/// Planted squats on the app-owned derived tag namespace must heal
-/// non-destructively. Production boundary: the Docker daemon's persistent
-/// tag storage is adversarial input to every composition. Covers the two
-/// dispositions the engine exposes to operators:
-///
-/// * an unverified foreign image squatting the tag under a single tag — the
-///   exact posture ordinary `docker import` creates, because the engine mints
-///   a digest reference that expires with the last tag and therefore offers
-///   no real protection — is refused with an operator-actionable error and
-///   survives untouched;
-/// * a signed library image squatting the tag under an alias keeps its own
-///   references, so the recovery path likewise releases the reservation and
-///   rebuilds without touching the library.
-///
-/// This scenario exercises the tag-only protection rule in
-/// `derived_tag_guard`: repo digest references never count as protection
-/// because the Docker engine deletes an image when its last tag is removed.
-///
-/// Both scenarios use throwaway tool sets, so they cannot race other
-/// scenarios' receipts or tags in a shared opt-in run.
-#[test]
-fn planted_derived_tag_squats_recover_non_destructively_and_preserve_foreign_data() {
-    if !opted_in_on_linux() {
-        return;
-    }
-    let lock = ImageLock::bundled().expect("reviewed runtime image lock");
-    let arch = native_docker_arch();
-    anchor_tag_less_foundations();
-    let fixture = Fixture::new();
-    let (workspace, task_clone) = committed_workspace(&fixture);
-
-    // Scenario A — foreign squat: an unverified image plants itself under
-    // the content-addressed derived tag for python+go.
-    let refusal_tools = vec!["python".to_owned(), "go".to_owned()];
-    let refusal_hash = match lock.plan_project_runtime(arch, &refusal_tools) {
-        Ok(ProjectRuntimeImagePlan::Composition(candidate)) => candidate.recipe_sha256,
-        other => panic!("precondition: python+go must plan a composition, got {other:?}"),
-    };
-    let reserved_tag = format!("koolade-derived:{}", strip_sha(&refusal_hash));
-    let squatter_dir = std::env::temp_dir().join("koolade-squat-import");
-    std::fs::create_dir_all(&squatter_dir).expect("scratch import dir");
-    let squatter_payload = squatter_dir.join("marker");
-    std::fs::write(&squatter_payload, b"foreign-content").expect("scribble import payload");
-    let squatter_tar = squatter_dir.join("payload.tar");
-    let packed = std::process::Command::new("tar")
-        .arg("cf")
-        .arg(&squatter_tar)
-        .arg("-C")
-        .arg(&squatter_dir)
-        .arg("marker")
-        .output()
-        .expect("pack squatter payload");
-    assert!(packed.status.success(), "tar packing failed: {:?}", packed);
-    let _import_print = docker_run(&["import", squatter_tar.to_str().unwrap(), &reserved_tag]);
-    // `docker import` prints a manifest digest, not the image config id; the
-    // authoritative id comes from inspecting the reference the import bound.
-    // Successful resolution doubles as proof the plant reached the reserved
-    // tag.
-    let tag_holder = docker_run(&["image", "inspect", "--format", "{{.Id}}", &reserved_tag]);
-    let imported_id = normalized_image_id(&tag_holder);
-    let protected_counters = reference_counters(&imported_id);
-    assert!(
-        protected_counters.digest_count >= 1,
-        "ordinary image creation mints a digest reference that the engine lets expire with the last tag"
-    );
-    // The reserved tag is thus the squatter's only protection; the builder
-    // must refuse to release it and keep the foreign image intact.
-    let refusal = match ExecutionSession::connect_local_with_tools(
-        workspace.clone(),
-        &task_clone,
-        ExecutionModeV1::Implementation,
-        &refusal_tools,
-        ResourceBudgetV1::default(),
-    ) {
-        Err(refusal) => refusal,
-        Ok(_) => panic!("a squatting single-tag image must be refused, not deleted"),
-    };
-    assert!(
-        refusal.message.contains("reconcile the tag manually"),
-        "operator-actionable guidance expected, got: {}",
-        refusal.message
-    );
-    let survivor = docker_run(&["image", "inspect", "--format", "{{.Id}}", &imported_id]);
-    assert_eq!(
-        survivor, imported_id,
-        "the refused squatter image must survive untouched"
-    );
-    let still_planted = docker_run(&["image", "inspect", "--format", "{{.Id}}", &reserved_tag]);
-    assert_eq!(
-        still_planted, imported_id,
-        "the planted tag must remain untouched after refusal"
-    );
-    // Scaffold teardown: only the test's own imported image is removed.
-    let _ = docker_run(&["rmi", &imported_id]);
-
-    // Scenario B — signed library alias: the Rust foundation squats under
-    // the cargo+go derived tag while keeping its library references.
-    let recovery_tools = vec!["cargo".to_owned(), "go".to_owned()];
-    let recovery_hash = match lock.plan_project_runtime(arch, &recovery_tools) {
-        Ok(ProjectRuntimeImagePlan::Composition(candidate)) => candidate.recipe_sha256,
-        other => panic!("precondition: cargo+go must plan a composition, got {other:?}"),
-    };
-    let alien_profile = lock
-        .select(RuntimeProfile::Rust, arch)
-        .expect("locked profile image");
-    docker_run(&[
-        "tag",
-        &alien_profile.digest,
-        &format!("koolade-derived:{}", strip_sha(&recovery_hash)),
-    ]);
-    let recovered = ExecutionSession::connect_local_with_tools(
-        workspace,
-        &task_clone,
-        ExecutionModeV1::Implementation,
-        &recovery_tools,
-        ResourceBudgetV1::default(),
-    )
-    .expect("aliased squat must be released and the recipe rebuilt");
-    let recovered_digest = recovered.connected_image_digest();
-    assert_ne!(
-        recovered_digest, alien_profile.digest,
-        "the connected runtime must be the freshly built composite"
-    );
-    let library_tags = docker_run(&[
-        "image",
-        "inspect",
-        "--format",
-        "{{range .RepoTags}}{{.}} {{end}}",
-        &alien_profile.digest,
-    ]);
-    assert!(
-        !library_tags.contains(strip_sha(&recovery_hash)),
-        "only the app-owned derived tag may be released, got: {library_tags}"
-    );
-    let proof = recovered
-        .run_tool_command("set -eu\ngo version", Duration::from_secs(180))
-        .expect("scenario B composite executes go");
-    assert_eq!(proof.result.exit_code, Some(0), "{:#?}", proof.result);
-}
-fn strip_sha(identity: &str) -> &str {
-    identity.strip_prefix("sha256:").unwrap_or(identity)
 }

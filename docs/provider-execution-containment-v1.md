@@ -11,35 +11,18 @@ controller-host authority. This document is implementation-plan step 1
 implementation PRs must satisfy. It is deliberately normative about
 boundaries and deliberately conservative about claims.
 
-## Status of the current block
+## Current status and accepted limitation
 
-Today, execution is hard-denied for Codex and Claude regardless of machine
-state:
+Codex is currently available through its existing host CLI adapter. Managed
+hooks and account policy are not proven to be contained, and can run with host
+authority outside the application-owned tool boundary. This limitation is
+tracked in [#725](https://github.com/zbarno/kool.ade/issues/725). Claude remains
+blocked unless the existing containment evidence requirements are met.
 
-- `src/harness/execution_security/profiles.rs` returns static block reasons
-  (`CODEX_TASK_EXECUTION_BLOCK`, `CLAUDE_TASK_EXECUTION_BLOCK`) for every
-  profile, so neither provider can produce profile eligibility evidence
-  (`profile_evidence_id` refuses to mint IDs for blocked profiles).
-- `src/harness/execution_security.rs` documents why: the provider CLI runs on
-  the controller host and its cloud/account/organization-managed hook code
-  cannot be inspected or suppressed ahead of launch. Feature-disable flags do
-  not override managed policy, so the deny is unconditional.
-- Partial, non-boundary mitigations already exist and stay as
-  defense-in-depth:
-  - `UNSAFE_PROVIDER_LAUNCH_ENV` scrubs environment variables that can
-    inject startup code, redirect shells, retarget Git, or hijack IPC at
-    provider launch (node/bun/python preload, git config overrides, VS Code
-    IPC handles, `CLAUDE_CODE_SHELL_PREFIX`, ...). Provider auth/model
-    transport variables are intentionally retained.
-  - The app-owned MCP bridge and Docker `ExecutionSession`
-    (`src/execution/session.rs`, `src/harness/execution_security/session_bridge.rs`)
-    protect **brokered repository commands** — not the provider process
-    tree, which is exactly the gap this design closes.
-
-The block must not simply be removed. Requirement 10: hard-coded denials come
-out only once the replacement enforces the same safety properties, and any
-combination that cannot be contained keeps a precise, evidence-based
-fail-closed reason instead of the current blanket one.
+The rest of this document describes the target containment design for #591,
+not a claim that the currently available Codex route implements that design.
+Environment scrubbing and the application-owned MCP/Docker bridge remain in
+place for brokered operations; they do not contain the provider process tree.
 
 ## Assets and adversaries
 
@@ -88,7 +71,7 @@ C-cancellation, S-secrecy-of-app-authority) and a confidence grade
 | 13 | Provider tries to drive app-owned MCP to approve/publish | Self-service escalation | S (app authorization is the final gate; MCP exposure inside the boundary is read/execute-as-Worker-token only; no Manager grant, no task-ownership writes, no publish/merge/deploy verbs) | Enforced |
 | 14 | Two workspaces/tasks intermix via shared caches | FS aliases | T (per-task task-owned volumes; dependency cache by existing ref contracts, immutable) | Enforced |
 | 15 | Windows/macOS equivalents diverge silently | Cross-platform skew | Platform gate: Linux/rootless-Docker only in v1; others keep precise unsupported diagnostics | Enforced |
-| 16 | Manager receives hostile ambient instructions and acts | Prompt/instruction layer (orthogonal to OS containment) | Manager gate: §Manager eligibility keeps Codex/Claude Manager-blocked until instruction/config suppression is verifiably evidenced; containment alone never unlocks Manager | Enforced |
+| 16 | Manager receives hostile ambient instructions and acts | Prompt/instruction layer (orthogonal to OS containment) | Target Manager gate: instruction/config suppression is verifiably evidenced; containment alone does not prove Manager safety | Codex exception: [#725](https://github.com/zbarno/kool.ade/issues/725); Claude blocked |
 
 Residual-risk disclosures (honest ceiling of v1):
 Kernel/namespace CVE-class escapes; covert timing/DNS side channels; and
@@ -280,7 +263,7 @@ disposable probe container, never a real task.
   retains provider-native features whose effects stay inside the verified
   boundary (in-container installs, task-file operations); anything needing
   host effect is not a Worker feature.
-- **Manager stays blocked for Codex/Claude in v1**, with the *updated*
+- **Target: Manager stays blocked for Codex/Claude until verified**, with the *updated*
   evidence-based reason (instruction/config suppression not verifiable),
   distinct from "cannot contain the process." Containment of the process
   tree does not contain the instruction layer: a hostile organization can
@@ -288,7 +271,7 @@ disposable probe container, never a real task.
   `manager_eligible` therefore requires an additional, separately evidenced
   `instruction_isolation_probe` (effective instruction/config resolution
   demonstrated locked to app-owned content) — out of v1 scope for these two
-  providers, so Manager routing for them remains evidence-blocked. Existing
+  providers. The current host Codex route is an exception tracked in [#725](https://github.com/zbarno/kool.ade/issues/725); Claude remains blocked. Existing
   Manager blocks for antigravity/opencode/copilot keep their reasons and are
   unaffected. Unblocking Worker never flips Manager (regression-asserted).
 

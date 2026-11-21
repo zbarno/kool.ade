@@ -27,7 +27,7 @@ session; provider identity cannot add tool authority.
 | Provider CLI | Manager profile | Worker profile | Eligibility condition or blocker |
 | --- | --- | --- | --- |
 | Pi | Conditional | Conditional | Both require current profile/authentication, version, model, and mode evidence. The worker may receive one app-owned task skill during bounded implementation (see below). |
-| Codex CLI | Blocked | Blocked | Account-managed hooks/policy cannot be inspected or contained. |
+| Codex CLI | Conditional | Conditional | Account-managed hooks/policy may execute on the host; isolation is tracked in [#725](https://github.com/zbarno/kool.ade/issues/725). |
 | Claude Code | Blocked | Blocked | Server-managed hooks/policy cannot be inspected or contained; Claude is additionally blocked under WSL where Windows-managed policy is not inspectable. |
 | OpenCode | Blocked | Conditional | Manager remains blocked until installed-CLI behavior proves project instructions and plugins are suppressed. Worker requires current evidence and route/mode prerequisites. |
 | GitHub Copilot CLI | Blocked | Conditional | Manager remains blocked until effective managed instruction and extension behavior is verified. Worker requires current evidence and route/mode prerequisites. |
@@ -37,9 +37,9 @@ session; provider identity cannot add tool authority.
 version, authentication, model catalog, invocation support, profile identity,
 and role/mode. Tool-enabled modes also require the app MCP bridge and the
 appropriate live execution target. It does not claim every installed provider
-is ready. Pi is currently the only Manager-eligible CLI. Codex and Claude fail
-closed before launch for both profiles; Antigravity, OpenCode, and Copilot fail
-closed for Manager. No authentication or transport result overrides those blockers.
+is ready. Pi and Codex are Manager-eligible. Claude fails closed before launch
+for both profiles; Antigravity, OpenCode, and Copilot fail closed for Manager.
+No authentication or transport result overrides those blockers.
 
 Only one provider-native worker capability is currently enabled: Pi receives a
 single application-owned `koolade-task` `SKILL.md` for bounded implementation.
@@ -97,7 +97,7 @@ uncontainable managed hooks for that profile.
 | Provider CLI | Planning | Read-only analysis | Task generation | Investigation | Implementation | Reconciliation | Decision explanation | Runtime QA visual review |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Pi | P | P | P | P | P | P | P | P |
-| Codex CLI | — | — | — | — | — | — | — | — |
+| Codex CLI | P | P | P | P | P | P | P | P |
 | Claude Code | — | — | — | — | — | — | — | — |
 | OpenCode | P | P | P | P | P | P | P | P |
 | GitHub Copilot CLI | P | P | P | P | P | P | P | P |

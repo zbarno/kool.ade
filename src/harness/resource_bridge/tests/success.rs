@@ -138,6 +138,8 @@ fn authorized_broker_request_prepares_a_verified_npm_cache_hit() {
             .iter()
             .any(|entry| entry.path.ends_with(&hex(&digest[2..])))
     );
+    let (progress, _) = mpsc::channel();
+    assert!(super::super::resource_attention(Some(&bridge), &progress).is_none());
 
     drop(bridge);
     fs::remove_file(archive_path).unwrap();

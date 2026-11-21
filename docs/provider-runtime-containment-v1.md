@@ -2,12 +2,12 @@
 
 Status: security design in progress for issue [#591](https://github.com/zbarno/kool.ade/issues/591).
 This document records the strategy evaluation and required trust boundaries;
-it does not claim that Codex or Claude execution is contained or supported.
+it does not claim that host Codex or Claude execution is contained. Codex host execution is available with the known managed-policy risk tracked in [#725](https://github.com/zbarno/kool.ade/issues/725); Claude remains blocked.
 
 ## Current boundary and decision
 
 Today, provider CLIs run on the controller so they can use their supported
-sign-in and model transports. Their repository tools are disabled and
+sign-in and model transports. Repository tools are configured disabled, subject to provider-managed policy, and
 application MCP operations go through the existing `ExecutionSession`. That
 session protects brokered repository commands, but does not contain provider
 hooks, helpers, plugins, or descendants. Private homes, CLI flags, and MCP
@@ -23,7 +23,7 @@ necessary boundary, not sufficient proof of safety. Provider model transport
 and authentication must also be mediated so arbitrary code in the container
 cannot read reusable credentials or send them to an arbitrary destination.
 Until that mediation and the process boundary are implemented and tested,
-Codex and Claude remain unavailable for both profiles.
+Codex remains available on the host with the documented risk; Claude remains unavailable.
 
 The ordinary repository `ExecutionSession` cannot simply host the CLI as-is:
 it intentionally has no provider credentials and ambient network access is

@@ -237,7 +237,7 @@ fn codex_login_status_execution_failure_is_not_mislabeled_as_authentication() {
 }
 
 #[cfg(unix)]
-fn seed_codex_detection(verified_at_unix_ms: Option<u64>) {
+pub(super) fn seed_codex_detection(verified_at_unix_ms: Option<u64>) {
     let (mut settings, _) = crate::persistence::harness_settings::load();
     settings.discovered.insert(
         "codex".into(),

@@ -1,7 +1,7 @@
 use std::{
     sync::{
         Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread::JoinHandle,
 };
@@ -16,7 +16,7 @@ pub(super) fn acquire_request_slot(in_flight: &AtomicUsize) -> bool {
         .is_ok()
 }
 
-pub(super) fn reap_finished_requests(requests: &Mutex<Vec<JoinHandle<()>>>) {
+pub(super) fn reap_finished_requests(requests: &Mutex<Vec<JoinHandle<()>>>, failed: &AtomicBool) {
     let Ok(mut requests) = requests.lock() else {
         return;
     };
@@ -24,7 +24,9 @@ pub(super) fn reap_finished_requests(requests: &Mutex<Vec<JoinHandle<()>>>) {
     while index < requests.len() {
         if requests[index].is_finished() {
             let finished = requests.swap_remove(index);
-            let _ = finished.join();
+            if finished.join().is_err() {
+                failed.store(true, Ordering::Relaxed);
+            }
         } else {
             index += 1;
         }
