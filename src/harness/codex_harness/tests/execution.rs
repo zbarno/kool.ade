@@ -147,6 +147,28 @@ fn failure_and_malformed_completion_are_reported_as_harness_failures() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// The CLI event boundary must allow a recoverable host-tool warning followed
+/// by a successful answer. A parser test alone cannot verify event ordering.
+/// This uses a fake local CLI and requires neither network nor Docker.
+#[cfg(unix)]
+#[test]
+fn recoverable_host_tool_warning_does_not_end_the_turn() {
+    let root = std::env::temp_dir().join(format!("koolade-codex-warning-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let binary = fake_cli(
+        &root,
+        "printf '%s\\n' '{\"type\":\"error\",\"error\":{\"message\":\"code mode is disabled on host\"}}' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"continued\"}}'",
+    );
+    let _env = EnvOverride::set(CODEX_BINARY_ENV, &binary);
+    let (tx, _) = mpsc::channel();
+    let outcome = crate::harness::with_uncontained_provider_test_execution(|| {
+        CodexHarness.execute(&request(root.clone(), tx))
+    })
+    .unwrap();
+    assert_eq!(outcome.final_text, "continued");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn cancellation_terminates_the_active_codex_process() {

@@ -23,6 +23,7 @@ mod cache_snapshot;
 mod cargo;
 mod debian_repository;
 pub(crate) use debian_repository::{InstalledPackage, RepositoryPackagePlan};
+mod attention;
 pub(super) mod dependency;
 pub(crate) mod fetch;
 mod go;
@@ -30,6 +31,7 @@ mod npm;
 mod pip;
 mod policy;
 mod proxy;
+pub(crate) use attention::resource_attention;
 mod secure_file;
 #[cfg(all(test, unix))]
 mod tests;

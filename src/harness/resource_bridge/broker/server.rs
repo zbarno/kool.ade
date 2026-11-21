@@ -19,6 +19,14 @@ pub(super) fn serve(mut client: UnixStream, context: &BrokerContext<'_>) -> io::
         .take(MAX_REQUEST_BYTES as u64 + 1)
         .read_until(b'\n', &mut request)?;
     if read == 0 || request.len() > MAX_REQUEST_BYTES {
+        let mut pending = context
+            .attention
+            .lock()
+            .map_err(|_| io::Error::other("Resource attention state is unavailable"))?;
+        if pending.is_none() {
+            *pending = Some("A resource request was empty or too large.".into());
+        }
+        drop(pending);
         return write_json(
             &mut client,
             &ResourceResponse {

@@ -182,6 +182,14 @@ impl AiHarness for CodexHarness {
                                     deferred_host_code_mode_failure = Some(reason);
                                     continue;
                                 }
+                                if let Some(error) =
+                                    crate::harness::resource_bridge::resource_attention(
+                                        boundary.resource_bridge(),
+                                        &request.progress_tx,
+                                    )
+                                {
+                                    return Err(error);
+                                }
                                 return Err(provider_failure(
                                     &reason,
                                     request.mode.tool_access(),
@@ -221,6 +229,12 @@ impl AiHarness for CodexHarness {
                 Err(PollState::Closed) => break,
                 Err(PollState::Pending) => {}
             }
+        }
+        if let Some(error) = crate::harness::resource_bridge::resource_attention(
+            boundary.resource_bridge(),
+            &request.progress_tx,
+        ) {
+            return Err(error);
         }
         if let Some(reason) = deferred_host_code_mode_failure {
             return Err(provider_failure(

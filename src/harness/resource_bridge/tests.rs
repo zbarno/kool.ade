@@ -224,6 +224,112 @@ fn uncertain_resource_request_is_returned_and_recorded_for_operator_attention() 
     assert_eq!(response.status, "needs_attention");
     assert!(response.summary.contains("example.com"));
     assert!(bridge.attention_detail().unwrap().contains("example.com"));
+    let (progress, _) = std::sync::mpsc::channel();
+    let error = super::resource_attention(Some(&bridge), &progress).unwrap();
+    assert!(error.detail().contains("example.com"));
+    drop(bridge);
+    std::fs::remove_dir_all(worktree).unwrap();
+}
+
+/// Production boundary: provider completion must not accept success while an
+/// admitted broker request is unresolved. A parser test cannot prove broker
+/// thread ordering. Uses a local Unix socket, no network or Docker, negligible setup.
+#[test]
+fn provider_completion_rejects_an_inflight_broker_request() {
+    let worktree =
+        std::env::temp_dir().join(format!("koolade-resource-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&worktree).unwrap();
+    let (bridge, _) = start_bridge(&worktree, None);
+    let client = UnixStream::connect(bridge.socket_path()).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while !bridge.has_active_request_for_test() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(bridge.has_active_request_for_test());
+    let (progress, _) = std::sync::mpsc::channel();
+    let error = super::resource_attention(Some(&bridge), &progress).unwrap();
+    assert!(error.detail().contains("still in progress"));
+    drop(client);
+    drop(bridge);
+    std::fs::remove_dir_all(worktree).unwrap();
+}
+
+#[test]
+fn provider_completion_rejects_a_panicked_broker_request() {
+    let worktree =
+        std::env::temp_dir().join(format!("koolade-resource-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&worktree).unwrap();
+    let (bridge, _) = start_bridge(&worktree, None);
+    bridge.inject_panicked_request_for_test();
+    let (progress, _) = std::sync::mpsc::channel();
+    let error = super::resource_attention(Some(&bridge), &progress).unwrap();
+    assert!(error.detail().contains("failed unexpectedly"));
+    drop(bridge);
+    std::fs::remove_dir_all(worktree).unwrap();
+}
+
+#[test]
+fn provider_completion_rejects_missing_broker_socket() {
+    let worktree =
+        std::env::temp_dir().join(format!("koolade-resource-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&worktree).unwrap();
+    let (bridge, _) = start_bridge(&worktree, None);
+    std::fs::remove_file(bridge.socket_path()).unwrap();
+    let (progress, _) = std::sync::mpsc::channel();
+    let error = super::resource_attention(Some(&bridge), &progress).unwrap();
+    assert!(error.detail().contains("failed unexpectedly"));
+    drop(bridge);
+    std::fs::remove_dir_all(worktree).unwrap();
+}
+
+/// Production boundary: a broker handler error after admission must prevent a
+/// provider success. Validator tests cannot prove the handler result reaches
+/// completion. Uses a local Unix socket, without network or Docker.
+#[test]
+fn provider_completion_rejects_broker_handler_errors() {
+    let worktree =
+        std::env::temp_dir().join(format!("koolade-resource-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&worktree).unwrap();
+    let (bridge, _) = start_bridge(&worktree, None);
+    let mut client = UnixStream::connect(bridge.socket_path()).unwrap();
+    client.write_all(b"{\"action\":\"cache_snapshot\",\"dependency_request_id\":\"missing\",\"ecosystem\":\"npm\",\"project_id\":\"fixture\",\"target_arch\":\"x86_64\",\"target_id\":\"fixture\"}\n").unwrap();
+    let mut response = String::new();
+    let _ = BufReader::new(client).read_line(&mut response);
+    let (progress, _) = std::sync::mpsc::channel();
+    let error = super::resource_attention(Some(&bridge), &progress).unwrap();
+    assert!(error.detail().contains("failed unexpectedly"));
+    drop(bridge);
+    std::fs::remove_dir_all(worktree).unwrap();
+}
+
+#[test]
+fn provider_completion_rejects_an_empty_broker_request() {
+    let worktree =
+        std::env::temp_dir().join(format!("koolade-resource-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&worktree).unwrap();
+    let (bridge, _) = start_bridge(&worktree, None);
+    let client = UnixStream::connect(bridge.socket_path()).unwrap();
+    client.shutdown(std::net::Shutdown::Write).unwrap();
+    let mut response = String::new();
+    BufReader::new(client).read_line(&mut response).unwrap();
+    let (progress, _) = std::sync::mpsc::channel();
+    let error = super::resource_attention(Some(&bridge), &progress).unwrap();
+    assert!(error.detail().contains("empty or too large"));
+    drop(bridge);
+    std::fs::remove_dir_all(worktree).unwrap();
+}
+
+#[test]
+fn provider_completion_rejects_a_replaced_broker_socket_path() {
+    let worktree =
+        std::env::temp_dir().join(format!("koolade-resource-test-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&worktree).unwrap();
+    let (bridge, _) = start_bridge(&worktree, None);
+    std::fs::remove_file(bridge.socket_path()).unwrap();
+    std::fs::write(bridge.socket_path(), "replacement").unwrap();
+    let (progress, _) = std::sync::mpsc::channel();
+    assert!(super::resource_attention(Some(&bridge), &progress).is_some());
+    assert_eq!(std::fs::read(bridge.socket_path()).unwrap(), b"replacement");
     drop(bridge);
     std::fs::remove_dir_all(worktree).unwrap();
 }
@@ -288,6 +394,14 @@ fn unsupported_package_manager_is_returned_for_operator_attention() {
         crate::harness::DependencyRequestStatus::Denied
     );
     assert!(bridge.attention_detail().unwrap().contains("pnpm"));
+    let (progress, updates) = std::sync::mpsc::channel();
+    let error = super::resource_attention(Some(&bridge), &progress).unwrap();
+    assert!(error.detail().contains("dependency request"));
+    let update = updates.try_recv().unwrap();
+    assert_eq!(
+        update.dependency_requests[0].status,
+        crate::harness::DependencyRequestStatus::Denied
+    );
     drop(bridge);
     std::fs::remove_dir_all(worktree).unwrap();
 }

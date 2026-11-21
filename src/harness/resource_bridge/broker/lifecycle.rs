@@ -1,4 +1,5 @@
 use super::ResourceBridge;
+use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::{fs, sync::atomic::Ordering};
 
 impl ResourceBridge {
@@ -193,6 +194,60 @@ impl ResourceBridge {
         self.pending_attention.lock().ok()?.clone()
     }
 
+    /// Stop admission and reject completion while any accepted request is unresolved.
+    pub(crate) fn close_admission(&self) -> Result<(), &'static str> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let mut worker = self
+            .worker
+            .lock()
+            .map_err(|_| "Resource broker state is unavailable")?;
+        if !self.admission_stop.load(Ordering::Relaxed) {
+            let same_socket = std::fs::symlink_metadata(&self.socket).is_ok_and(|metadata| {
+                metadata.file_type().is_socket()
+                    && (metadata.dev(), metadata.ino()) == self.socket_identity
+            });
+            if !same_socket || std::fs::remove_file(&self.socket).is_err() {
+                self.failed.store(true, Ordering::Relaxed);
+            }
+            self.admission_stop.store(true, Ordering::Relaxed);
+        }
+        while worker.as_ref().is_some_and(|worker| !worker.is_finished()) {
+            if std::time::Instant::now() >= deadline {
+                return Err("Resource broker did not stop accepting requests");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        if worker.take().is_some_and(|worker| worker.join().is_err()) {
+            self.failed.store(true, Ordering::Relaxed);
+        }
+        drop(worker);
+        loop {
+            let mut requests = self
+                .requests
+                .lock()
+                .map_err(|_| "Resource request state is unavailable")?;
+            if requests.iter().all(std::thread::JoinHandle::is_finished) {
+                if requests.drain(..).any(|request| request.join().is_err()) {
+                    self.failed.store(true, Ordering::Relaxed);
+                }
+                if self.pending_attention.lock().is_err() || self.pending_dependency.lock().is_err()
+                {
+                    self.failed.store(true, Ordering::Relaxed);
+                }
+                return if self.failed.load(Ordering::Relaxed) {
+                    Err("Resource broker request failed unexpectedly")
+                } else {
+                    Ok(())
+                };
+            }
+            drop(requests);
+            if std::time::Instant::now() >= deadline {
+                return Err("A resource request was still in progress when the worker exited");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
     pub(crate) fn dependency_request(&self) -> Option<crate::harness::DependencyRequest> {
         self.pending_dependency.lock().ok()?.last().cloned()
     }
@@ -200,6 +255,22 @@ impl ResourceBridge {
 
 #[cfg(test)]
 impl ResourceBridge {
+    pub(crate) fn has_active_request_for_test(&self) -> bool {
+        self.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|request| !request.is_finished())
+    }
+
+    pub(crate) fn inject_panicked_request_for_test(&self) {
+        let worker = std::thread::spawn(|| panic!("synthetic broker failure"));
+        while !worker.is_finished() {
+            std::thread::yield_now();
+        }
+        self.requests.lock().unwrap().push(worker);
+    }
+
     pub(crate) fn start_with_preparation_hook(
         worktree: &std::path::Path,
         task_id: Option<&str>,
@@ -227,7 +298,13 @@ impl ResourceBridge {
 impl Drop for ResourceBridge {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        if let Some(worker) = self.worker.take() {
+        self.admission_stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self
+            .worker
+            .get_mut()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
             let _ = worker.join();
         }
         if let Ok(mut requests) = self.requests.lock() {
