@@ -164,14 +164,10 @@ model entitlement. Providers without a safe
 non-generative login check retain an explicit authentication-verification task
 and cannot become ready as a setup agent until the required evidence is fresh.
 
-Codex task execution from Kool.ad/e is disabled until a process sandbox can
-contain organization-managed hooks. Codex's `allow_managed_hooks_only` setting
-still allows administrator-managed hooks, and managed policy can require hook
-features; Kool.ad/e's local launch flags cannot rule out those host-side
-commands. The [Codex configuration reference](https://github.com/openai/codex/blob/main/docs/config.md)
-documents this behavior. Codex installation and sign-in guidance remain
-available, but use another provider for Kool.ad/e task assistance until the
-execution boundary can contain managed hooks.
+Codex task execution uses the signed-in host CLI. Organization-managed hooks
+can execute outside the app's execution boundary: `allow_managed_hooks_only`
+still permits administrator-managed hooks, and managed policy can require hook
+features. Isolation is tracked in [#725](https://github.com/zbarno/kool.ade/issues/725).
 
 OpenCode's `models` output is catalog/configuration evidence. A local model
 without credentials is considered usable only when a bounded, non-generative

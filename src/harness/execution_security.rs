@@ -171,7 +171,7 @@ impl HarnessCapabilities {
                 credentials: CredentialPolicy::ProviderManagedButUnavailableToRepositoryCommands,
                 process_isolation: ProcessIsolation::DockerExecutionSession,
             } => {
-                "Supported provider CLIs stay on the host for authentication and model connection, start in a private working directory, and have native repository tools disabled. Every repository operation runs through Kool.ad/e's application-owned MCP session and Docker ExecutionSession, bound to the selected workspace and execution mode. Docker mounts only the assigned clone writable for implementation or the selected repository read-only for planning; containers receive no provider credentials or ambient network. Dependency and public-resource access remains application-mediated. Provider launches and probes remove inherited startup-code, shell-init, loader, Git-config, and IDE-connection variables while retaining provider auth and model transport. Locally visible host hooks, commands, and extra MCP servers are rejected; any local Claude Code managed-settings file or drop-in is rejected, and its host-side MCP shell-prefix override is removed. Codex or Claude account-managed policy may still supply host-side hooks, helper commands, MCP servers, or feature settings; the app cannot preflight cloud-delivered policy, so task execution for both providers is blocked. Claude Code is unavailable under WSL because it can inherit Windows-managed policy that Kool.ad/e cannot inspect."
+                "Supported provider CLIs stay on the host for authentication and model connection, start in a private working directory, and are configured with native repository tools disabled; account-managed settings may override provider flags. Application-provided repository tools run through Kool.ad/e's MCP session and Docker ExecutionSession, bound to the selected workspace and execution mode. Docker mounts only the assigned clone writable for implementation or the selected repository read-only for planning; containers receive no provider credentials or ambient network. Dependency and public-resource access remains application-mediated. Provider launches and probes remove inherited startup-code, shell-init, loader, Git-config, and IDE-connection variables while retaining provider auth and model transport. Locally visible host hooks, commands, and extra MCP servers are rejected; any local Claude Code managed-settings file or drop-in is rejected, and its host-side MCP shell-prefix override is removed. Codex account-managed policy may still supply host-side hooks, helper commands, MCP servers, or feature settings that are not contained by the application; see issue #725. Claude Code task execution remains blocked when this policy cannot be contained. Claude Code is unavailable under WSL because it can inherit Windows-managed policy that Kool.ad/e cannot inspect."
             }
         }
     }
@@ -289,13 +289,14 @@ mod tests {
         ));
         assert!(!implementation_route_available("claude code"));
         assert!(task_execution_block_reason("claude").is_some());
-        assert!(!supports_mode_contract("codex", ExecutionMode::Planning));
-        assert!(!supports_mode_contract(
-            "Codex CLI",
+        assert!(supports_mode_contract("codex", ExecutionMode::Planning));
+        assert!(supports_mode_contract(
+            "codex",
             ExecutionMode::Implementation
         ));
-        assert!(!implementation_route_available("codex"));
-        assert!(task_execution_block_reason("codex").is_some());
+        assert!(supports_mode_contract("codex", ExecutionMode::Manager));
+        assert!(implementation_route_available("codex"));
+        assert!(task_execution_block_reason("codex").is_none());
         assert!(for_harness("unknown").is_none());
         assert!(!implementation_route_available("unknown"));
     }

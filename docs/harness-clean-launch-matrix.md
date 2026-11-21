@@ -23,8 +23,8 @@ proof of authenticated-provider behavior.
 
 | Provider | Manager profile | Worker profile | Current profile-specific controls and limits |
 | --- | --- | --- | --- |
-| Pi | Conditional | Conditional | The only currently eligible Manager profile. Both disable sessions, context files, extensions, ambient skills, templates, themes, and built-in tools; only app MCP tools are exposed. Bounded Worker implementation may additionally load the single app-owned `koolade-task` skill. No subagents are enabled. |
-| Codex CLI | Blocked | Blocked | Private `CODEX_HOME`, ephemeral JSON execution, ignored user config, read-only sandbox profile, and isolated saved auth handling are configured. Account-managed hooks/policy cannot be preflighted or contained, so neither role may launch. |
+| Pi | Conditional | Conditional | Both disable sessions, context files, extensions, ambient skills, templates, themes, and built-in tools; only app MCP tools are exposed. Bounded Worker implementation may additionally load the single app-owned `koolade-task` skill. No subagents are enabled. |
+| Codex CLI | Conditional | Conditional | Uses the signed-in host CLI with private `CODEX_HOME`, ephemeral JSON execution, ignored user config, and the app-owned tool bridge. Account-managed hooks and policy are not contained and may run with host authority; follow-up [#725](https://github.com/zbarno/kool.ade/issues/725). |
 | Claude Code | Blocked | Blocked | Private MCP configuration, restricted mode, no native tools, no session persistence, and local managed-setting checks are configured. Server-managed hooks/policy cannot be preflighted or contained, so neither role may launch. Claude is also unavailable under WSL because Windows-managed policy cannot be inspected. |
 | OpenCode | Blocked | Conditional | Private config/home, deny-by-default permissions, app MCP allowlist, and project-config/external-skill flags are set. Their effective behavior for project instructions and plugins has not been verified against the installed CLI, so Manager launch is blocked. |
 | GitHub Copilot CLI | Blocked | Conditional | Private home/cache and explicit app MCP allowlist are used; built-in MCPs, custom instructions, remote access, and remote export are disabled. Managed instruction/extension behavior is not verified for strict Manager use. |
@@ -33,18 +33,18 @@ proof of authenticated-provider behavior.
 “Conditional” requires a fresh role/mode capability snapshot, installed CLI
 version, authentication, model, scriptable invocation, and (for tool modes) the
 app bridge plus required execution target. It does not mean every provider or
-account is currently ready. Pi is the only currently eligible Manager profile.
-Codex and Claude are fail-closed for both profiles; Antigravity, OpenCode, and
-Copilot are fail-closed for Manager. Routing shows the blocker, refreshes
+account is currently ready. Pi and Codex are eligible for Manager. Claude is
+fail-closed for both profiles; Antigravity, OpenCode, and Copilot are
+fail-closed for Manager. Routing shows the blocker, refreshes
 stale evidence automatically, and does not silently substitute a provider.
 
 The Manager receives app-supplied context and mode-limited read-only MCP tools;
 it does not receive repository project-guidance files as executable
 instructions. `AGENTS.md`, worker output, and repository content remain
 untrusted evidence. The application owns action validation, approvals, QA,
-publication, merge, and deployment. Repository operations use the app-owned
-Docker execution boundary, and provider credentials are not mounted into the
-Docker worker.
+publication, merge, and deployment. Application-brokered repository operations use the Docker execution boundary,
+and provider credentials are not mounted into the Docker worker. Codex managed
+hooks may execute on the host outside that boundary.
 
 The only native worker skill currently enabled is the explicit app-owned Pi
 `koolade-task` skill for bounded implementation. It is generated in private
@@ -68,9 +68,9 @@ release follow-up.
 Role-profile evidence is bound to the probed version and current authentication
 source class and expires with discovery freshness. Before a routed call, the
 application checks that the evidence is still current and asks the CLI for its
-version again. Providers with managed account hooks or policy that cannot be
-preflighted are blocked for the affected roles; a class-level auth check does
-not claim to detect every same-class account change.
+version again. Claude remains blocked when managed policy cannot be preflighted. Codex is
+available with the unresolved managed-hook risk tracked in #725; a class-level
+auth check does not detect every same-class account change.
 
 The controller-side provider environment rebuilds `PATH` from OS-protected
 directories only. On Unix, every path component must be root-owned and not

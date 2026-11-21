@@ -219,9 +219,8 @@ fn first_reader_snapshot_defaults_to_the_historic_obstruction_when_unprovisioned
         return;
     }
     // Under this guard the default-off engine/attestation switches are
-    // the decisive protectors (each false forces Obstructed regardless of
-    // host or pin publication), so codex/claude Worker selection stays on
-    // the exact legacy notices.
+    // the decisive protectors for Claude (each false forces Obstructed
+    // regardless of host or pin publication). Codex uses the host route.
     for id in ["codex", "claude"] {
         assert_eq!(
             super::super::profiles::profile_block_reason(

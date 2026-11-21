@@ -26,9 +26,8 @@ request (the dialog’s per-provider “Check” button, “Rediscover tools”,
 unroutable-provider notice). Nothing re-scans on a timer; discovery freshness
 decides presentation, not scheduling.
 
-Codex task routes remain blocked while organization-managed hooks cannot be
-contained inside the app's execution boundary; use another provider for
-Kool.ad/e tasks meanwhile.
+Codex task routes use the signed-in host CLI. Account-managed hooks may run on
+the host outside the app execution boundary; isolation is tracked in [#725](https://github.com/zbarno/kool.ade/issues/725).
 
 
 ## Role routes

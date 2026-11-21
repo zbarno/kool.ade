@@ -4,34 +4,36 @@ use super::*;
 // which lets fake CLI output exercise execution without treating it as auth evidence.
 // Production readiness is covered separately by the fail-closed probe tests.
 
-/// Production boundary: direct `CodexHarness::execute` must reject account-managed hook risk
-/// before it starts the configured CLI. A guard-only unit test cannot prove this adapter path
-/// reaches the guard before spawn. Uses a temporary executable marker fixture on Unix only; no
-/// real provider, credentials, network, or Docker, with low setup cost.
+/// Production boundary: the actual CLI adapter must launch an authenticated
+/// selected executable for both worker and Manager profiles without bypassing
+/// launch validation. Unit profile checks cannot prove process invocation.
+/// Uses a synthetic CLI and stored fixture receipt; no network or Docker.
 #[cfg(unix)]
 #[test]
-fn managed_hook_block_rejects_direct_execution_before_cli_spawn() {
-    let root = std::env::temp_dir().join(format!("koolade-codex-block-{}", uuid::Uuid::new_v4()));
+fn selected_codex_cli_runs_for_worker_and_manager_profiles() {
+    let root =
+        std::env::temp_dir().join(format!("koolade-codex-selected-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
-    let marker = root.join("spawned");
-    let binary = root.join("codex-marker.sh");
-    std::fs::write(
-        &binary,
-        format!("#!/bin/sh\ntouch '{}'\nexit 0\n", marker.display()),
-    )
-    .unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let binary = fake_cli(
+        &root,
+        "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"fixture answer\"}}'\nexit 0",
+    );
     let _env = EnvOverride::set(super::CODEX_BINARY_ENV, &binary);
-    let (tx, _) = mpsc::channel();
-
-    let error = CodexHarness
-        .execute(&request(root.clone(), tx))
-        .unwrap_err();
-
-    assert!(error.detail().contains("organization-managed hooks"));
-    assert!(error.detail().contains("No CLI was started"));
-    assert!(!marker.exists(), "blocked Codex task started the fake CLI");
+    crate::persistence::harness_settings::with_settings_path(root.join("settings.json"), || {
+        super::probe::seed_codex_detection(Some(
+            crate::persistence::harness_settings::current_unix_ms(),
+        ));
+        for mode in [ExecutionMode::ReadOnlyAnalysis, ExecutionMode::Manager] {
+            let (tx, _) = mpsc::channel();
+            let outcome = CodexHarness
+                .execute(&PlanningRequest {
+                    mode,
+                    ..request(root.clone(), tx)
+                })
+                .unwrap();
+            assert_eq!(outcome.final_text, "fixture answer");
+        }
+    });
     std::fs::remove_dir_all(root).unwrap();
 }
 

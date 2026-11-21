@@ -48,7 +48,7 @@ fn implementation_repair_attempt_uses_the_configured_repair_provider() {
 fn every_role_route_selects_each_supported_provider_and_pins_its_model() {
     use crate::persistence::harness_settings as categories;
 
-    let providers = ["pi", "opencode", "copilot", "antigravity"];
+    let providers = ["pi", "codex", "opencode", "copilot", "antigravity"];
     let work_categories = [
         categories::MANAGER,
         categories::PLANNING,
@@ -89,7 +89,7 @@ fn every_role_route_selects_each_supported_provider_and_pins_its_model() {
                     .expect("every configured role has a mode")
                     .harness_mode();
             let provenance = harness.route_provenance(&role_request);
-            if category == categories::MANAGER && provider != "pi" {
+            if category == categories::MANAGER && !matches!(provider, "pi" | "codex") {
                 assert!(
                     provenance.is_none(),
                     "{provider} unexpectedly routed Manager"
@@ -117,7 +117,8 @@ fn every_role_route_selects_each_supported_provider_and_pins_its_model() {
         }
     }
 
-    for blocked_provider in ["codex", "claude"] {
+    {
+        let blocked_provider = "claude";
         let blocked_routes = BTreeMap::from([(
             categories::IMPLEMENTATION.into(),
             WorkRoute {
@@ -222,4 +223,55 @@ fn request() -> crate::harness::PlanningRequest {
         review_identity: None,
         computer_use: None,
     }
+}
+
+/// Production boundary: selected implementation routing into the Codex adapter.
+/// A route provenance unit test cannot prove which child adapter actually runs.
+/// The missing-workspace case uses the real boundary; the successful process
+/// fixture uses the test-only boundary override, so it does not prove Docker or
+/// approval behavior. No network or Docker; setup creates one shell script.
+#[cfg(unix)]
+#[test]
+fn codex_implementation_route_selects_host_cli_and_rejects_missing_workspace() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let binary = root.path().join("codex");
+    let marker = root.path().join("invoked");
+    std::fs::write(
+        &binary,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'codex-cli 1.0.0'; exit 0; fi\nif [ \"$1\" = exec ] && [ \"$2\" = --help ]; then echo '--json --cd --sandbox --ephemeral --model --config --disable --ignore-user-config --skip-git-repo-check'; exit 0; fi\nif [ \"$1\" = login ]; then echo 'Logged in'; exit 0; fi\ntouch '{}'\ncat >/dev/null\nprintf '%s\\n' '{{\"type\":\"item.completed\",\"item\":{{\"type\":\"agent_message\",\"text\":\"routed\"}}}}'\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set(crate::harness::codex_harness::CODEX_BINARY_ENV, &binary);
+    let mut settings =
+        settings_with_routes(BTreeMap::from([(IMPLEMENTATION.into(), route("codex"))]));
+    settings
+        .discovered
+        .get_mut("codex")
+        .unwrap()
+        .verified_at_unix_ms = Some(crate::persistence::harness_settings::current_unix_ms());
+    with_settings(&settings, || {
+        let harness = routed_harness(&settings, Some(IMPLEMENTATION), None, None);
+        let mut implementation = request();
+        implementation.mode = crate::harness::ExecutionMode::Implementation;
+        implementation.repo_root = root.path().to_path_buf();
+        let error = harness.execute(&implementation).unwrap_err();
+        assert!(error.detail().contains("workspace"), "{error}");
+        assert!(
+            !marker.exists(),
+            "missing workspace started the task process"
+        );
+        let outcome = crate::harness::with_uncontained_provider_test_execution(|| {
+            harness.execute(&implementation)
+        })
+        .unwrap();
+        assert_eq!(outcome.final_text, "routed");
+        assert!(marker.exists());
+    });
 }

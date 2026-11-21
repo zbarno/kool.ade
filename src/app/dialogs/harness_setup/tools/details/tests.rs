@@ -155,5 +155,5 @@ fn authenticated_claude_stays_unavailable_and_cannot_become_default() {
 #[test]
 fn implementation_guidance_names_the_provider_specific_blocker() {
     assert!(implementation_guidance("claude").contains("organization-managed hooks"));
-    assert!(implementation_guidance("codex").contains("organization-managed hooks"));
+    assert!(implementation_guidance("codex").contains("ready Docker execution session"));
 }

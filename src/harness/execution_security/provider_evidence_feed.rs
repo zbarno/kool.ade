@@ -11,8 +11,8 @@
 //!   images.lock.json` (the same bytes the policy fingerprint digests)
 //!   under the additive `profiles.provider_cli` key. The key is absent in
 //!   every released lock today, so every current deployment gathers
-//!   `image_pin = None` and stays obstructed — flipping the block REQUIRES
-//!   ops to publish a pinned, validated provider-runtime profile entry
+//!   `image_pin = None` and cannot use the contained route — enabling that route requires
+//!   operators to publish a pinned, validated provider-runtime profile entry
 //!   through the image promotion pipeline. Malformed entries fail CLOSED
 //!   to absence (garbage never admits).
 //! - **Engine verification / hook containment attestation**: interim
@@ -25,10 +25,10 @@
 //!   these switches in a later slice (standing obligation, design doc).
 //!
 //! Delivery into selection: a once-initialized process
-//! ([`snapshot`]) consumed by the Worker profile arm. First reader
-//! gathers; the default (nothing gathered) is byte-for-byte the legacy
-//! blocked behavior. Tests use the pure [`gather_provider_evidence`] with
-//! injected inputs instead of env/global state.
+//! ([`snapshot`]) consumed by the Claude Worker profile. Codex currently
+//! uses the host CLI and does not claim containment; see issue #725. Tests use
+//! the pure [`gather_provider_evidence`] with injected inputs instead of
+//! env/global state.
 
 use std::sync::{Arc, OnceLock};
 
