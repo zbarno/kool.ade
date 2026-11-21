@@ -5,6 +5,7 @@ use crate::error::AppError;
 use crate::harness::pi_proc::{PollState, StreamEvt};
 use crate::harness::{
     AiHarness, HarnessOutcome, LivePost, LiveProgress, ModelCallUsage, PlanningRequest,
+    RetrievalPlan,
 };
 
 mod failures;
@@ -273,5 +274,26 @@ impl AiHarness for CodexHarness {
             envelope: None,
             stderr_tail: stderr_tail(&stderr),
         })
+    }
+
+    fn supports_context_retrieval(&self) -> bool {
+        true
+    }
+
+    fn plan_retrieval(&self, request: &PlanningRequest) -> Result<Option<RetrievalPlan>, AppError> {
+        self.plan_retrieval_with_model(request, None)
+    }
+
+    fn plan_retrieval_with_model(
+        &self,
+        request: &PlanningRequest,
+        model: Option<&str>,
+    ) -> Result<Option<RetrievalPlan>, AppError> {
+        let outcome = self.execute_with_model(request, model)?;
+        let object = crate::harness::pi_extract::extract_json_object(&outcome.final_text)
+            .ok_or_else(|| AppError::Other("Retrieval planner returned no JSON object".into()))?;
+        serde_json::from_str(&object)
+            .map(Some)
+            .map_err(|error| AppError::Other(format!("Invalid retrieval plan: {error}")))
     }
 }

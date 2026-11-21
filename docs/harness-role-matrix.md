@@ -97,7 +97,7 @@ uncontainable managed hooks for that profile.
 | Provider CLI | Planning | Read-only analysis | Task generation | Investigation | Implementation | Reconciliation | Decision explanation | Runtime QA visual review |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Pi | P | P | P | P | P | P | P | P |
-| Codex CLI | — | — | — | — | — | — | — | — |
+| Codex CLI | P | P | P | P | P | P | P | P |
 | Claude Code | — | — | — | — | — | — | — | — |
 | OpenCode | P | P | P | P | P | P | P | P |
 | GitHub Copilot CLI | P | P | P | P | P | P | P | P |

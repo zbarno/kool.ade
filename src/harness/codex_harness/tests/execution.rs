@@ -1,5 +1,55 @@
 use super::*;
 
+/// Production boundary: the Codex CLI adapter returns the selected logical
+/// sources and forwards the route's model to the retrieval pass. A parser-only
+/// test cannot prove the adapter launches the selected CLI. This uses a local
+/// fake CLI, requires no network or Docker, and has negligible setup cost.
+#[cfg(unix)]
+#[test]
+fn retrieval_uses_selected_model_and_rejects_invalid_plans() {
+    let root =
+        std::env::temp_dir().join(format!("koolade-codex-retrieval-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let arguments = root.join("arguments");
+    let binary = fake_cli(
+        &root,
+        &format!(
+            "printf '%s\\n' \"$@\" > '{}'\nprintf '%s\\n' '{{\"type\":\"item.completed\",\"item\":{{\"type\":\"agent_message\",\"text\":\"{{\\\"documents\\\":[\\\"product:overview\\\"],\\\"openItems\\\":[],\\\"repositoryAreas\\\":[]}}\"}}}}'",
+            arguments.display()
+        ),
+    );
+    let mut environment = EnvOverride::set(CODEX_BINARY_ENV, &binary);
+    let (tx, _) = mpsc::channel();
+    let request = PlanningRequest {
+        mode: ExecutionMode::ReadOnlyAnalysis,
+        ..request(root.clone(), tx)
+    };
+    assert!(CodexHarness.supports_context_retrieval());
+    let plan = crate::harness::with_uncontained_provider_test_execution(|| {
+        CodexHarness.plan_retrieval_with_model(&request, Some("fixture-model"))
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(plan.documents, ["product:overview"]);
+    assert!(
+        std::fs::read_to_string(&arguments)
+            .unwrap()
+            .contains("--model\nfixture-model\n")
+    );
+
+    let binary = fake_cli(
+        &root,
+        "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"documents\\\":42}\"}}'",
+    );
+    environment.set_value(&binary);
+    let error = crate::harness::with_uncontained_provider_test_execution(|| {
+        CodexHarness.plan_retrieval(&request)
+    })
+    .unwrap_err();
+    assert!(error.detail().contains("Invalid retrieval plan"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 // These lifecycle tests intentionally use the test-only uncontained provider context,
 // which lets fake CLI output exercise execution without treating it as auth evidence.
 // Production readiness is covered separately by the fail-closed probe tests.
