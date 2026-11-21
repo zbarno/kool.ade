@@ -3,6 +3,10 @@ use crate::harness::{AiHarness, PlanningRequest};
 mod unavailable;
 pub(super) use unavailable::UnavailableHarness;
 
+mod contained_lane;
+mod contained_worker;
+pub(super) use contained_worker::ContainedWorkerHarness;
+
 pub(super) struct RoutedHarness {
     pub(super) inner: Box<dyn AiHarness>,
     pub(super) harness_id: String,

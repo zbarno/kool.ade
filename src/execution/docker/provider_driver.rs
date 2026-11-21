@@ -40,9 +40,11 @@
 //! `block_on` inside another runtime's worker would panic, and that is
 //! correct fail-fast behavior.
 //!
-//! Still unwired by design: nothing calls this driver in production yet.
-//! Real execution additionally requires the pinned-image ops step and,
-//! with it, runnable capability evidence.
+//! Still wired: the production executor factory
+//! (`wrappers::contained_worker::ProductionContainedExecutorFactory`)
+//! connects this driver per admitted contained run. Real execution
+//! additionally requires the pinned-image ops step and, with it,
+//! runnable capability evidence.
 
 use bollard::Docker;
 use bollard::errors::Error as EngineError;

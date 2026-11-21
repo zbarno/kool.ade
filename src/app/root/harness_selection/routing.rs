@@ -1,5 +1,7 @@
 use super::role_router::role_for_work_category;
-use super::wrappers::{ImplementationQaHarness, RoutedHarness, UnavailableHarness};
+use super::wrappers::{
+    ContainedWorkerHarness, ImplementationQaHarness, RoutedHarness, UnavailableHarness,
+};
 use super::{role_router, route_readiness::has_current_authenticated_snapshot};
 use crate::harness::{
     AiHarness, AntigravityHarness, ClaudeHarness, CodexHarness, CopilotHarness, OpenCodeHarness,
@@ -179,12 +181,26 @@ pub(super) fn routed_harness<'a>(
     let category = work_type.unwrap_or(crate::persistence::harness_settings::PLANNING);
     let role = role_for_work_category(category)
         .unwrap_or(crate::execution::contract::HarnessRole::PlanningAnalyst);
-    if let Some(reason) = crate::harness::execution_security::profile_block_reason(
-        harness_id,
-        role.harness_mode().profile(),
-    ) {
+    let profile = role.harness_mode().profile();
+    if let Some(reason) =
+        crate::harness::execution_security::profile_block_reason(harness_id, profile)
+    {
         return Box::new(UnavailableHarness::guidance(reason.into()));
     }
+    // (#591 phase 4, wiring slice A) An ADMITTED worker-route for a
+    // controllable provider executes inside the sealed provider namespace,
+    // never on the host: reaching this point means the containment
+    // evaluator returned a runnable verdict for (provider, Worker), so the
+    // wrapper is the ONLY lawful executor for the route. Worker routes that
+    // are NOT admitted never reach this line (they returned above as
+    // blocked guidance), so this wrap cannot loosen any restriction.
+    let harness: Box<dyn AiHarness> = if profile == crate::harness::ExecutionProfile::Worker
+        && matches!(harness_id, "codex" | "claude")
+    {
+        Box::new(ContainedWorkerHarness::new(harness, harness_id.to_string())) as Box<dyn AiHarness>
+    } else {
+        harness
+    };
     let requested_model = route
         .and_then(|route| route.model.as_deref())
         .filter(|model| !model.trim().is_empty());
