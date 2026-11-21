@@ -100,6 +100,15 @@ pub(crate) fn verify_scriptable_invocation(
 }
 pub(crate) use mcp_server::serve as serve_mcp_server;
 pub(crate) use profiles::{profile_block_reason, profile_evidence_id, task_execution_block_reason};
+pub(crate) use provider_contained_launch::{
+    ContainedLaunchError, ContainedLaunchPlan, plan_contained_launch, run_planned_contained,
+};
+#[cfg(test)]
+pub(crate) use provider_eligibility::ContainedImagePin;
+pub(crate) use provider_eligibility::ProviderContainmentEvidence;
+#[cfg(test)]
+pub(crate) use provider_evidence_feed::detect_platform_fact;
+pub(crate) use provider_evidence_feed::snapshot as provider_evidence_snapshot;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FilesystemScope {

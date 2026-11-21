@@ -28,17 +28,10 @@
 //! ([`crate::execution::docker::provider_session::terminate_then_cleanup`]):
 //! success means *verified gone*; residue is reported, never absorbed.
 //!
-//! Wiring note: the worker-launch integration consumes this adapter once
-//! evidence provisioning exists; until then its public face is exercised
-//! exclusively by tests, hence the non-test dead-code expectation, which
-//! self-reports the moment real callers land.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "MODULE-WIDE scope: silences all unused items in this tiny module until the wired consumer (worker-launch integration) arrives; tests exercise the face meanwhile"
-    )
-)]
+//! Wired (consumer landed): the worker-launch integration
+//! (`crate::app::root::harness_selection::wrappers::contained_worker`) drives
+//! this adapter for admitted Worker-role codex/claude routes; tests keep
+//! exercising the face directly.
 
 use crate::execution::docker::provider_session::{
     CapturedExecReport, ProviderContainerSpec, ProviderExecutorPort, ProviderSpecBuilder,
