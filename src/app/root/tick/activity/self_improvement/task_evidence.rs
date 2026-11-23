@@ -109,7 +109,9 @@ pub(super) fn synchronize(
         && let Some(receipt) = task.code_review.as_ref()
         && receipt.actor == GateActor::IndependentReviewer
         && receipt.decision == GateDecision::Approved
-        && receipt.prompt_role() == Some(crate::harness::prompt_catalog::PromptRole::CodeReviewer)
+        && receipt
+            .prompt_role()
+            .is_some_and(crate::harness::prompt_catalog::PromptRole::is_scoped_code_reviewer)
         && Some(receipt.subject_sha256.as_str()) == run.implementation_subject_sha256.as_deref()
     {
         apply(

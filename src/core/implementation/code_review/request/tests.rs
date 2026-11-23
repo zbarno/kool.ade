@@ -48,7 +48,14 @@ fn code_reviewer_receives_the_complete_subject_in_read_only_mode() {
     assert_eq!(request.mode, ExecutionMode::ReadOnlyAnalysis);
     assert!(request.execution_workspace.is_none());
     assert_eq!(request.review_identity.as_ref(), Some(&reviewer));
-    assert_eq!(manifest.role_version, "code_review/v2");
+    assert_eq!(manifest.role_version, "code_review/v3");
+    assert!(request.prompt_body.contains("Copy `payload.subject_hash`"));
+    assert!(
+        request
+            .prompt_body
+            .contains("A passing verdict requires empty `unexamined_areas` and `untested` lists")
+    );
+    assert!(request.prompt_body.contains(&"c".repeat(64)));
     assert!(request.prompt_body.contains("diff --git a/src/lib.rs"));
     assert!(request.prompt_body.contains("approved requirement"));
     assert!(request.prompt_body.contains("review-subject-v1"));

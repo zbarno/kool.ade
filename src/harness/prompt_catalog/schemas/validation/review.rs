@@ -11,7 +11,7 @@ pub(super) fn validate(
         {
             return Err("review subject hash does not match the immutable subject".into());
         }
-        if role == PromptRole::CodeReviewer {
+        if role.is_scoped_code_reviewer() {
             if review.findings.len() > 64
                 || review.untested.len() > 64
                 || review.examined_files.len() > 2048
@@ -253,7 +253,7 @@ pub(super) fn validate(
             if matches!(coverage.status, CoverageStatus::Fail)
                 && !review.findings.iter().any(|finding| {
                     finding.requirement == coverage.requirement
-                        && (role != PromptRole::CodeReviewer
+                        && (!role.is_scoped_code_reviewer()
                             || finding.scope
                                 == Some(crate::harness::prompt_catalog::FindingScopeV1::Blocking))
                 })

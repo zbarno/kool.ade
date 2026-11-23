@@ -120,21 +120,25 @@ fn legacy_v1_receipts_remain_readable_but_do_not_meet_the_v2_approval_rule() {
 }
 
 #[test]
-fn persisted_review_receipt_round_trips_and_is_bound_to_its_subject() {
-    let root = tempfile::tempdir().unwrap();
-    let value = receipt();
-    crate::artifacts::atomic_write_bytes(
-        &root.path().join(RECEIPT_FILE),
-        &serde_json::to_vec(&value).unwrap(),
-    )
-    .unwrap();
-    let loaded = load_receipt(root.path(), &value.task_uid).unwrap().unwrap();
-    assert_eq!(loaded.subject_hash, value.subject_hash);
-    assert!(loaded.verdict.pass);
+fn persisted_scoped_review_receipts_round_trip_and_are_bound_to_their_subject() {
+    use crate::harness::prompt_catalog::PromptRole;
 
-    let mut stale = loaded;
-    stale.subject_hash = "f".repeat(64);
-    assert!(validate_receipt(&stale).is_err());
+    for role in [PromptRole::CodeReviewerV2, PromptRole::CodeReviewer] {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(RECEIPT_FILE);
+        let value = receipt_for_role(role);
+        crate::artifacts::atomic_write_bytes(&path, &serde_json::to_vec(&value).unwrap()).unwrap();
+
+        let mut loaded = load_receipt(root.path(), &value.task_uid).unwrap().unwrap();
+        assert_eq!(loaded.subject_hash, value.subject_hash);
+        assert_eq!(loaded.prompt, value.prompt);
+        assert!(uses_current_prompt(&loaded));
+        assert!(is_approved_verdict(&loaded.verdict));
+
+        loaded.subject_hash = "f".repeat(64);
+        crate::artifacts::atomic_write_bytes(&path, &serde_json::to_vec(&loaded).unwrap()).unwrap();
+        assert!(load_receipt(root.path(), &value.task_uid).is_err());
+    }
 }
 
 #[test]

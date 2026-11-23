@@ -29,7 +29,7 @@ fn removed_manager_and_planner_manifests_are_unknown() {
 }
 
 #[test]
-fn code_reviewer_v1_manifest_remains_readable_beside_the_v2_role() {
+fn earlier_code_review_manifests_remain_readable_beside_v3() {
     let input = |role| {
         base(
             role,
@@ -53,13 +53,21 @@ fn code_reviewer_v1_manifest_remains_readable_beside_the_v2_role() {
         PromptRole::CodeReviewerV1
     );
 
-    let v2 = render(&input(PromptRole::CodeReviewer)).unwrap().manifest;
+    let v2 = render(&input(PromptRole::CodeReviewerV2)).unwrap().manifest;
     assert_eq!(v2.role_version, "code_review/v2");
     assert_eq!(
         validate_prompt_manifest(&v2).unwrap(),
-        PromptRole::CodeReviewer
+        PromptRole::CodeReviewerV2
     );
     assert_ne!(v1.system_template_sha256, v2.system_template_sha256);
+
+    let v3 = render(&input(PromptRole::CodeReviewer)).unwrap().manifest;
+    assert_eq!(v3.role_version, "code_review/v3");
+    assert_eq!(
+        validate_prompt_manifest(&v3).unwrap(),
+        PromptRole::CodeReviewer
+    );
+    assert_ne!(v2.user_template_sha256, v3.user_template_sha256);
 }
 
 #[test]

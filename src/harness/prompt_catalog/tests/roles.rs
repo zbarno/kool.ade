@@ -16,6 +16,7 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         PromptRole::Decomposer,
         PromptRole::Implementer,
         PromptRole::CodeReviewer,
+        PromptRole::CodeReviewerV2,
         PromptRole::CodeReviewerV1,
         PromptRole::RuntimeQaReviewer,
         PromptRole::RuntimeQaReviewerV2,
@@ -85,6 +86,11 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         ),
         (
             PromptRole::CodeReviewer,
+            "f9339f8b736644e7a8fe0f143c70c3967a7911d295ca966a5bfad7e4c0907055",
+            "2edd72cb0afb5e970aa89368113885362fe1f075ce5ecf109ac9626629d705d2",
+        ),
+        (
+            PromptRole::CodeReviewerV2,
             "75b00ebee8fbc8197717d054f7f7afbc3f8566fe1a4c5124a129b6d040249d65",
             "1214d63c183650c99122395cb2e005cc8a8327f9da04578ce72cbbea9bddb687",
         ),

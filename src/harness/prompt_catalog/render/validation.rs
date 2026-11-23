@@ -85,7 +85,7 @@ pub(super) fn validate_input(input: &RoleInputV1) -> Result<(), String> {
             )
             | (PromptRole::PlanReviewer, RolePayloadV1::Review { .. })
             | (
-                PromptRole::CodeReviewer | PromptRole::CodeReviewerV1,
+                PromptRole::CodeReviewer | PromptRole::CodeReviewerV2 | PromptRole::CodeReviewerV1,
                 RolePayloadV1::Review { .. }
             )
             | (
@@ -121,7 +121,7 @@ pub(super) fn validate_input(input: &RoleInputV1) -> Result<(), String> {
     } = &input.payload
     {
         if input.role != PromptRole::PlanReviewer
-            && input.role != PromptRole::CodeReviewer
+            && !input.role.is_scoped_code_reviewer()
             && input.role != PromptRole::CodeReviewerV1
             && input.role != PromptRole::RuntimeQaReviewer
             && input.role != PromptRole::RuntimeQaReviewerV2

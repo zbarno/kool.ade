@@ -26,6 +26,7 @@ pub enum PromptRole {
     Decomposer,
     Implementer,
     CodeReviewer,
+    CodeReviewerV2,
     CodeReviewerV1,
     RuntimeQaReviewer,
     RuntimeQaReviewerV2,
@@ -47,7 +48,8 @@ impl PromptRole {
             Self::PlanReviewerV1 => "plan_reviewer/v1",
             Self::Decomposer => "decomposer/v2",
             Self::Implementer => "implementer/v1",
-            Self::CodeReviewer => "code_review/v2",
+            Self::CodeReviewer => "code_review/v3",
+            Self::CodeReviewerV2 => "code_review/v2",
             Self::CodeReviewerV1 => "code_review/v1",
             Self::RuntimeQaReviewer => "runtime_qa/v1",
             Self::RuntimeQaReviewerV2 => "runtime_qa/v2",
@@ -68,6 +70,7 @@ impl PromptRole {
             Self::PlanReviewer
             | Self::PlanReviewerV1
             | Self::CodeReviewer
+            | Self::CodeReviewerV2
             | Self::CodeReviewerV1
             | Self::RuntimeQaReviewer
             | Self::RuntimeQaReviewerV2
@@ -92,7 +95,8 @@ impl PromptRole {
             Self::PlanReviewerV1 => include_str!("../../../prompts/v1/plan_review.system.md"),
             Self::Decomposer => include_str!("../../../prompts/v2/decomposer.system.md"),
             Self::Implementer => include_str!("../../../prompts/v1/implementer.system.md"),
-            Self::CodeReviewer => include_str!("../../../prompts/v2/code_review.system.md"),
+            Self::CodeReviewer => include_str!("../../../prompts/v3/code_review.system.md"),
+            Self::CodeReviewerV2 => include_str!("../../../prompts/v2/code_review.system.md"),
             Self::CodeReviewerV1 => include_str!("../../../prompts/v1/code_review.system.md"),
             Self::RuntimeQaReviewer => include_str!("../../../prompts/v1/runtime_qa.system.md"),
             Self::RuntimeQaReviewerV2 => {
@@ -124,7 +128,8 @@ impl PromptRole {
             Self::PlanReviewerV1 => include_str!("../../../prompts/v1/plan_review.user.md"),
             Self::Decomposer => include_str!("../../../prompts/v2/decomposer.user.md"),
             Self::Implementer => include_str!("../../../prompts/v1/implementer.user.md"),
-            Self::CodeReviewer => include_str!("../../../prompts/v2/code_review.user.md"),
+            Self::CodeReviewer => include_str!("../../../prompts/v3/code_review.user.md"),
+            Self::CodeReviewerV2 => include_str!("../../../prompts/v2/code_review.user.md"),
             Self::CodeReviewerV1 => include_str!("../../../prompts/v1/code_review.user.md"),
             Self::RuntimeQaReviewer => include_str!("../../../prompts/v1/runtime_qa.user.md"),
             Self::RuntimeQaReviewerV2 => include_str!("../../../prompts/v2/runtime_qa.user.md"),
@@ -141,6 +146,10 @@ impl PromptRole {
         }
     }
 
+    pub(crate) fn is_scoped_code_reviewer(self) -> bool {
+        matches!(self, Self::CodeReviewer | Self::CodeReviewerV2)
+    }
+
     pub(crate) fn privileges(self) -> &'static str {
         match self {
             Self::Manager
@@ -153,6 +162,7 @@ impl PromptRole {
             Self::PlanReviewer
             | Self::PlanReviewerV1
             | Self::CodeReviewer
+            | Self::CodeReviewerV2
             | Self::CodeReviewerV1
             | Self::RuntimeQaReviewer
             | Self::RuntimeQaReviewerV2

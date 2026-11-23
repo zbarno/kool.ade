@@ -90,7 +90,9 @@ pub(crate) fn validate_review_invocation(
     };
     let role_phase = request.prompt_manifest.as_ref().and_then(|manifest| {
         match manifest.role_version.as_str() {
-            "code_review/v1" | "code_review/v2" => Some("independent_code_review"),
+            "code_review/v1" | "code_review/v2" | "code_review/v3" => {
+                Some("independent_code_review")
+            }
             "plan_reviewer/v1" => Some("independent_plan_review"),
             "runtime_qa/v2" | "runtime_qa/v3" => Some("runtime_qa_review"),
             _ => None,
@@ -110,6 +112,7 @@ pub(crate) fn validate_review_invocation(
                 manifest.role_version.as_str(),
                 "code_review/v1"
                     | "code_review/v2"
+                    | "code_review/v3"
                     | "plan_reviewer/v1"
                     | "runtime_qa/v2"
                     | "runtime_qa/v3"

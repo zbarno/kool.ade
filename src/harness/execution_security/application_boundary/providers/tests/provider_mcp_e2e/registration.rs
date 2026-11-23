@@ -11,7 +11,9 @@ pub(super) fn assert_server_registration(
     let expected = boundary.server_args().unwrap();
     let server_name = boundary.mcp_server_name();
     let registered = match provider {
-        CliProvider::Codex => codex_registration(argv, server_name, expected.as_deref()),
+        CliProvider::Codex => {
+            codex_registration(argv, server_name, expected.as_deref(), boundary.access())
+        }
         CliProvider::Claude => {
             let path = arg_after(argv, "--mcp-config");
             let config = read_json(Path::new(path));
@@ -44,12 +46,22 @@ fn codex_registration(
     argv: &[String],
     server_name: &str,
     expected: Option<&[String]>,
+    access: crate::harness::ToolAccess,
 ) -> Option<Vec<String>> {
     let settings = argv
         .windows(2)
         .filter(|pair| pair[0] == "--config")
         .map(|pair| pair[1].as_str())
         .collect::<Vec<_>>();
+    if access != crate::harness::ToolAccess::BoundedImplementation {
+        assert!(
+            settings
+                .iter()
+                .all(|setting| !setting.starts_with("approval_policy=")
+                    && !setting.starts_with("approvals_reviewer=")
+                    && !setting.contains(".default_tools_approval_mode="))
+        );
+    }
     if expected.is_none() {
         assert!(
             settings.contains(&"mcp_servers={}"),
@@ -74,6 +86,23 @@ fn codex_registration(
         .expect("Codex MCP config omitted the app server")
         .as_table()
         .unwrap();
+    if access == crate::harness::ToolAccess::BoundedImplementation {
+        assert_eq!(settings["approvals_reviewer"].as_str(), Some("auto_review"));
+        let granular = &settings["approval_policy"]["granular"];
+        assert_eq!(granular["mcp_elicitations"].as_bool(), Some(true));
+        for setting in [
+            "sandbox_approval",
+            "rules",
+            "skill_approval",
+            "request_permissions",
+        ] {
+            assert_eq!(granular[setting].as_bool(), Some(false));
+        }
+        assert_eq!(
+            server["default_tools_approval_mode"].as_str(),
+            Some("prompt")
+        );
+    }
     let command = server
         .get("command")
         .and_then(toml_edit::Item::as_str)
@@ -96,6 +125,18 @@ fn codex_registration(
     assert_eq!(
         server.get("required").and_then(toml_edit::Item::as_bool),
         Some(true)
+    );
+    let omitted_surfaces = server["omit_tools_from"].as_array().unwrap();
+    assert_eq!(
+        omitted_surfaces
+            .iter()
+            .map(|value| value.as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["deferred", "code_mode"]
+    );
+    assert!(
+        argv.windows(2)
+            .any(|pair| pair == ["--disable", "code_mode_host"])
     );
     Some(registered)
 }
