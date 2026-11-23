@@ -7,10 +7,7 @@ pub(super) fn paint(
     ui: &mut Ui,
     prerequisite_id: &str,
 ) -> (bool, Option<String>) {
-    let is_general_image = prerequisite_id
-        .strip_prefix("setup:images:general:")
-        .is_some_and(|architecture| matches!(architecture, "amd64" | "arm64"));
-    if is_general_image {
+    if crate::app::bootstrap_repair_policy::parse_locked_image_task_id(prerequisite_id).is_some() {
         app.setup_image_preparation.paint(ui, prerequisite_id)
     } else {
         app.setup_remediation.paint(ui, prerequisite_id)

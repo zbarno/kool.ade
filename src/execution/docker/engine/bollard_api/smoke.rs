@@ -50,34 +50,42 @@ impl BollardApi {
                 .start_container(&created.id, None)
                 .await
                 .map_err(|error| map_api_error(&error))?;
-            let response = self
-                .docker
-                .wait_container(
-                    &created.id,
-                    Some(
-                        WaitContainerOptionsBuilder::default()
-                            .condition("not-running")
-                            .build(),
-                    ),
-                )
-                .next()
-                .await
-                .ok_or_else(|| {
-                    failure(
-                        PrerequisiteCode::DaemonStopped,
-                        "Docker ended the smoke container wait without an exit status",
-                        true,
-                    )
-                })?
-                .map_err(|error| map_api_error(&error))?;
-            if response.status_code != 0 {
-                return Err(failure(
-                    PrerequisiteCode::CapabilitiesIncompatible,
-                    "The approved smoke container exited with a failure status",
-                    false,
-                ));
+            let mut wait = self.docker.wait_container(
+                &created.id,
+                Some(
+                    WaitContainerOptionsBuilder::default()
+                        .condition("not-running")
+                        .build(),
+                ),
+            );
+            let mut exit = None;
+            // The approved transport cannot reconnect. Drain the response so
+            // cleanup can reuse the same connection.
+            while let Some(response) = wait.next().await {
+                let status = response
+                    .map_err(|error| map_api_error(&error))
+                    .and_then(|response| {
+                        if response.status_code == 0 {
+                            Ok(())
+                        } else {
+                            Err(failure(
+                                PrerequisiteCode::CapabilitiesIncompatible,
+                                "The approved smoke container exited with a failure status",
+                                false,
+                            ))
+                        }
+                    });
+                if exit.as_ref().is_none_or(Result::is_ok) {
+                    exit = Some(status);
+                }
             }
-            Ok(())
+            exit.unwrap_or_else(|| {
+                Err(failure(
+                    PrerequisiteCode::DaemonStopped,
+                    "Docker ended the smoke container wait without an exit status",
+                    true,
+                ))
+            })
         })
         .await;
 
