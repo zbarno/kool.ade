@@ -291,6 +291,7 @@ impl TaskRecord {
                 matches!(
                     role,
                     crate::harness::prompt_catalog::PromptRole::CodeReviewer
+                        | crate::harness::prompt_catalog::PromptRole::CodeReviewerV2
                         | crate::harness::prompt_catalog::PromptRole::CodeReviewerV1
                 )
             })

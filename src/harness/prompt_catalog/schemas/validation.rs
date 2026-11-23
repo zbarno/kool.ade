@@ -184,6 +184,7 @@ fn decode(
         PromptRole::PlanReviewer
         | PromptRole::PlanReviewerV1
         | PromptRole::CodeReviewer
+        | PromptRole::CodeReviewerV2
         | PromptRole::CodeReviewerV1
         | PromptRole::RuntimeQaReviewer
         | PromptRole::RuntimeQaReviewerV2

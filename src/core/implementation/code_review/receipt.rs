@@ -10,7 +10,8 @@ pub(super) fn is_approved_verdict(
 }
 
 pub(super) fn uses_current_prompt(receipt: &CodeReviewReceiptV1) -> bool {
-    receipt.prompt.role_version == crate::harness::prompt_catalog::PromptRole::CodeReviewer.id()
+    crate::harness::prompt_catalog::validate_prompt_manifest(&receipt.prompt)
+        .is_ok_and(crate::harness::prompt_catalog::PromptRole::is_scoped_code_reviewer)
 }
 
 pub(super) fn same_code_failed_review_requires_manager_resolution(
@@ -89,6 +90,7 @@ pub(super) fn validate_receipt(receipt: &CodeReviewReceiptV1) -> anyhow::Result<
         matches!(
             reviewer_role,
             crate::harness::prompt_catalog::PromptRole::CodeReviewer
+                | crate::harness::prompt_catalog::PromptRole::CodeReviewerV2
                 | crate::harness::prompt_catalog::PromptRole::CodeReviewerV1
         ),
         "CodeReviewer receipt prompt has the wrong reviewer role"
@@ -97,7 +99,7 @@ pub(super) fn validate_receipt(receipt: &CodeReviewReceiptV1) -> anyhow::Result<
         receipt.verdict.subject_hash == receipt.subject_hash,
         "CodeReviewer receipt is bound to another subject"
     );
-    if reviewer_role == crate::harness::prompt_catalog::PromptRole::CodeReviewer {
+    if reviewer_role.is_scoped_code_reviewer() {
         let mut affected_paths = receipt.affected_paths.clone();
         let mut examined_files = receipt.verdict.examined_files.clone();
         affected_paths.sort();
@@ -154,7 +156,7 @@ pub(super) fn validate_receipt(receipt: &CodeReviewReceiptV1) -> anyhow::Result<
             })),
         "CodeReviewer pass receipt has blocking findings or omits test evidence"
     );
-    if reviewer_role == crate::harness::prompt_catalog::PromptRole::CodeReviewer {
+    if reviewer_role.is_scoped_code_reviewer() {
         let evidence_ids = receipt
             .evidence_ids
             .iter()

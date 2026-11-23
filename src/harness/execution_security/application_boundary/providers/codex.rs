@@ -107,6 +107,16 @@ pub(super) fn configure(
         return Ok(());
     };
     let server = boundary.mcp_server_name();
+    if boundary.access() == crate::harness::ToolAccess::BoundedImplementation {
+        argv.extend([
+            "--config".into(),
+            r#"approvals_reviewer="auto_review""#.into(),
+            "--config".into(),
+            "approval_policy={granular={sandbox_approval=false,rules=false,skill_approval=false,request_permissions=false,mcp_elicitations=true}}".into(),
+            "--config".into(),
+            format!(r#"mcp_servers.{server}.default_tools_approval_mode="prompt""#),
+        ]);
+    }
     for (key, value) in [
         (
             format!("mcp_servers.{server}.command"),
@@ -115,6 +125,11 @@ pub(super) fn configure(
         (format!("mcp_servers.{server}.args"), toml_array(&args[1..])),
         (format!("mcp_servers.{server}.enabled"), "true".into()),
         (format!("mcp_servers.{server}.required"), "true".into()),
+        // Make the app's scoped tools visible without Codex's host code mode.
+        (
+            format!("mcp_servers.{server}.omit_tools_from"),
+            r#"["deferred", "code_mode"]"#.into(),
+        ),
         (
             format!("mcp_servers.{server}.tool_timeout_sec"),
             "1200".into(),

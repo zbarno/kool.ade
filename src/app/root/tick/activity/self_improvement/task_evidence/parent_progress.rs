@@ -32,8 +32,9 @@ pub(super) fn synchronize_parent_progress(
         let code_review_uid = task.code_review.as_ref().and_then(|receipt| {
             (receipt.actor == GateActor::IndependentReviewer
                 && receipt.decision == GateDecision::Approved
-                && receipt.prompt_role()
-                    == Some(crate::harness::prompt_catalog::PromptRole::CodeReviewer)
+                && receipt.prompt_role().is_some_and(
+                    crate::harness::prompt_catalog::PromptRole::is_scoped_code_reviewer,
+                )
                 && Some(receipt.subject_sha256.as_str()) == implementation_sha256.as_deref())
             .then(|| receipt.receipt_uid.clone())
         });

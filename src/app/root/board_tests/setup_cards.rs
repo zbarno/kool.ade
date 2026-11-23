@@ -162,6 +162,31 @@ fn kanban_setup_details_name_each_blocking_prerequisite() {
     assert!(!text_contains(&output, "setup:docker:rootless"));
 }
 
+/// Opens the real app's setup review surface through the board. A task-ID
+/// parser test alone cannot catch a different controller being painted.
+/// Uses synthetic local Git and UI data with no Docker, CLI, or network.
+#[test]
+fn engine_scoped_runtime_image_opens_the_image_approval_panel() {
+    use crate::persistence::setup_tasks::SetupTaskStateV1 as State;
+
+    let mut app = fixture();
+    let task_id = format!("setup:images:general:amd64:{}", "a".repeat(64));
+    app.machine_setup_tasks = vec![machine_setup_task(
+        &task_id,
+        "Prepare the approved general runtime image",
+        State::NeedsApproval,
+    )];
+    let ctx = super::mockup_layout::styled_context();
+    for _ in 0..3 {
+        frame(&mut app, &ctx, Vec::new());
+    }
+
+    let output = click_text(&mut app, &ctx, "Prepare the general runtime image");
+
+    assert!(text_contains(&output, "Prepare the approved image"));
+    assert!(text_contains(&output, "Nothing runs until you approve it."));
+}
+
 /// Presentation boundary of the grouped "Prepare this computer" checklist:
 /// whichever actor carries the next step must be legible from the row status,
 /// and no step may defer agent work to the operator via stale action copy.

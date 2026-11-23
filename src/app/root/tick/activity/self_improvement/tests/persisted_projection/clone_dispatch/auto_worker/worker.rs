@@ -51,7 +51,7 @@ impl crate::harness::AiHarness for LocalImplementationWorker {
         } else if request
             .prompt_manifest
             .as_ref()
-            .is_some_and(|manifest| manifest.role_version == "code_review/v2")
+            .is_some_and(|manifest| manifest.role_version == "code_review/v3")
         {
             self.review_started
                 .send(())

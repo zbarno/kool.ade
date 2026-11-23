@@ -120,7 +120,8 @@ impl GateReceipt {
                                     role,
                                     crate::harness::prompt_catalog::PromptRole::PlanReviewer
                                         | crate::harness::prompt_catalog::PromptRole::CodeReviewer
-                                        | crate::harness::prompt_catalog::PromptRole::CodeReviewerV1
+                                        | crate::harness::prompt_catalog::PromptRole::CodeReviewerV2
+                        | crate::harness::prompt_catalog::PromptRole::CodeReviewerV1
                                         | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewer
                                         | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV2
                                         | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV3

@@ -13,6 +13,11 @@ impl Controller {
             return (false, None);
         };
         let refresh_scan = self.poll(ui.ctx());
+        if let Some(attempt) = &self.attempt
+            && attempt.task_id != prerequisite_id
+        {
+            return (refresh_scan, None);
+        }
         ui.add_space(crate::ui::theme::spacing::M);
         ui.label(crate::ui::theme::section_heading(
             "Prepare the approved image",
