@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - containers/provider-cli-release.json
+      - .github/workflows/provider-cli-release.yml
   push:
     branches: [main]
     paths:
@@ -28,9 +29,49 @@ jobs:
         with:
           architecture: ${{ matrix.architecture }}
 
+  approval:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'zbarno/kool.ade'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      actions: read
+      statuses: read
+    steps:
+      - name: Require a reviewed release record and passing quality gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" | jq -er --arg sha "$GITHUB_SHA" '
+            [.[] | select(.merge_commit_sha == $sha and .merged_at != null and .base.ref == "main")]
+            | select(length == 1) | .[0].number')"
+          # GraphQL binds its own $number variable.
+          # shellcheck disable=SC2016
+          review="$(gh api graphql -F number="$pr" -f query='query($number:Int!) {
+            repository(owner:"zbarno", name:"kool.ade") { pullRequest(number:$number) {
+              author { login } headRefOid reviewDecision latestOpinionatedReviews(first:100) {
+                nodes { author { login } state commit { oid } }
+              }
+            } }
+          }' --jq '.data.repository.pullRequest')"
+          head="$(jq -er 'select(.reviewDecision == "APPROVED") | . as $pr |
+            select(any(.latestOpinionatedReviews.nodes[];
+              .state == "APPROVED" and .commit.oid == $pr.headRefOid and .author.login != $pr.author.login))
+            | .headRefOid' <<< "$review")"
+          for path in containers/provider-cli-release.json .github/workflows/provider-cli-release.yml; do
+            reviewed="$(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$head" --jq .sha)"
+            merged="$(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$GITHUB_SHA" --jq .sha)"
+            test "$reviewed" = "$merged"
+          done
+          gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json statusCheckRollup |
+            jq -e 'any(.statusCheckRollup[]; .workflowName == "Koolade quality gates" and
+              .name == "format, tests, and clippy" and .conclusion == "SUCCESS")'
+
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'zbarno/kool.ade'
-    needs: verify
+    needs: [verify, approval]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -64,14 +105,14 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y skopeo
           fi
-          export DOCKER_CONFIG="$RUNNER_TEMP/provider-publisher"
-          echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
-          mkdir -m 700 "$DOCKER_CONFIG"
-          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          # The attestation action reads the default Docker auth file directly.
+          docker_config="$HOME/.docker"
+          printf '%s' "$GH_TOKEN" | docker --config "$docker_config" login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          jq -e '.auths["ghcr.io"].auth | type == "string" and length > 0' "$docker_config/config.json" >/dev/null
           tag="$IMAGE:release-$GITHUB_SHA-$ARCHITECTURE"
-          skopeo copy --authfile "$DOCKER_CONFIG/config.json" --preserve-digests \
+          skopeo copy --authfile "$docker_config/config.json" --preserve-digests \
             "oci:$RUNNER_TEMP/provider-evidence/oci" "docker://$tag"
-          actual="$(skopeo inspect --authfile "$DOCKER_CONFIG/config.json" --format '{{.Digest}}' "docker://$tag")"
+          actual="$(skopeo inspect --authfile "$docker_config/config.json" --format '{{.Digest}}' "docker://$tag")"
           test "$actual" = "$DIGEST"
       - name: Attest provider image publication
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -86,3 +127,6 @@ jobs:
           subject-digest: ${{ steps.evidence.outputs.digest }}
           sbom-path: ${{ runner.temp }}/provider-evidence/sbom.spdx.json
           push-to-registry: true
+      - name: Clear the publisher registry login
+        if: always()
+        run: docker --config "$HOME/.docker" logout ghcr.io
