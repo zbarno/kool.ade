@@ -122,19 +122,14 @@ jobs:
       - name: Load the exported candidate into the rootless smoke engine
         run: |
           set -euo pipefail
-          if ! command -v skopeo >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y skopeo
-          fi
           mkdir -p "$RUNNER_TEMP/provider-evidence"
           manifest="$(jq -er '.manifests | select(length == 1) | .[0].digest' "$RUNNER_TEMP/provider-oci/index.json")"
           [[ "$manifest" =~ ^sha256:[0-9a-f]{64}$ ]]
           cp "$RUNNER_TEMP/provider-oci/blobs/sha256/${manifest#sha256:}" "$RUNNER_TEMP/provider-evidence/manifest.json"
           echo "${manifest#sha256:}  $RUNNER_TEMP/provider-evidence/manifest.json" | sha256sum --check --status
-          skopeo copy "oci:$RUNNER_TEMP/provider-oci" "docker-archive:$RUNNER_TEMP/provider.tar:koolade-provider-cli:candidate"
-          docker load --input "$RUNNER_TEMP/provider.tar"
-          expected="$(jq -er '.config.digest' "$RUNNER_TEMP/provider-evidence/manifest.json")"
-          test "$(docker image inspect --format '{{.Id}}' koolade-provider-cli:candidate)" = "$expected"
+          tar -C "$RUNNER_TEMP/provider-oci" -cf - oci-layout index.json blobs | docker load
+          docker image inspect koolade-provider-cli:candidate \
+            | jq -e --arg manifest "$manifest" '.[0].Descriptor.digest == $manifest'
       - name: Verify contained image identity and CLI startup
         env:
           PLATFORM: ${{ matrix.platform }}

@@ -37,7 +37,7 @@ network access, provider readiness, or task execution; Codex and Claude remain
 blocked until their process containment and model/auth transport are enforced.
 
 The candidate workflow exports a single-platform OCI image for each architecture
-and checks the loaded image configuration against that manifest before running
+and checks the loaded manifest digest against the exported bytes before running
 the smoke tests. Each successful job retains the manifest bytes, an SPDX SBOM,
 and a candidate record in the corresponding `provider-cli-evidence-*` artifact.
 For promotion review, collect both artifacts from the same successful run and
