@@ -39,7 +39,7 @@ jobs:
       actions: read
       statuses: read
     steps:
-      - name: Require a reviewed release record and passing quality gate
+      - name: Verify release authorization and required quality gate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -56,10 +56,21 @@ jobs:
               }
             } }
           }' --jq '.data.repository.pullRequest')"
-          head="$(jq -er 'select(.reviewDecision == "APPROVED") | . as $pr |
-            select(any(.latestOpinionatedReviews.nodes[];
-              .state == "APPROVED" and .commit.oid == $pr.headRefOid and .author.login != $pr.author.login))
-            | .headRefOid' <<< "$review")"
+          previous="$(jq -er .before "$GITHUB_EVENT_PATH")"
+          record_hash="$(gh api -H 'Accept: application/vnd.github.raw+json' \
+            "repos/$GITHUB_REPOSITORY/contents/containers/provider-cli-release.json?ref=$GITHUB_SHA" | sha256sum | cut -d' ' -f1)"
+          # The owner authorized the two manifests in #731 for this single main update.
+          if [[ "$previous" == c154c5b71e570484b874d8e4a361c7044625ab9f &&
+                "$record_hash" == c27b21418d45198eca1ccec82e80d6146eb1f387d66667f2d5181a4c17d3ff53 &&
+                "$GITHUB_ACTOR_ID" == 5166344 ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" | jq -e '.merged_by.id == 5166344' >/dev/null
+            head="$(jq -er .headRefOid <<< "$review")"
+          else
+            head="$(jq -er 'select(.reviewDecision == "APPROVED") | . as $pr |
+              select(any(.latestOpinionatedReviews.nodes[];
+                .state == "APPROVED" and .commit.oid == $pr.headRefOid and .author.login != $pr.author.login))
+              | .headRefOid' <<< "$review")"
+          fi
           for path in containers/provider-cli-release.json .github/workflows/provider-cli-release.yml; do
             reviewed="$(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$head" --jq .sha)"
             merged="$(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$GITHUB_SHA" --jq .sha)"

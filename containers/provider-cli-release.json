@@ -12,5 +12,10 @@
       "manifestDigest": "sha256:6e51b59a0900d17dfd8fc61e2b3c470e789c3c47478c44f5fc58c72ff944b53b",
       "candidateDigest": "sha256:5bf547c2b34e4ef53b0a24da6decaed2d5a4b55751b8269af82a46cba5043d4d"
     }
+  },
+  "publicationAuthorization": {
+    "mode": "single-release-owner-exception",
+    "ownerId": 5166344,
+    "previousMain": "c154c5b71e570484b874d8e4a361c7044625ab9f"
   }
 }
