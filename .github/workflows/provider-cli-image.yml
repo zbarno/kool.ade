@@ -6,6 +6,8 @@ on:
       - "containers/provider-cli/**"
       - "containers/base-images.lock.json"
       - ".github/workflows/provider-cli-image.yml"
+      - ".github/workflows/provider-cli-release.yml"
+      - ".github/actions/provider-release-evidence/**"
   workflow_dispatch:
 
 permissions:
@@ -101,6 +103,10 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
+          docker buildx create --name provider-candidate --driver docker-container \
+            --driver-opt image=moby/buildkit@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c --use
+          docker buildx inspect --bootstrap
+          touch -d @0 containers/provider-cli/binaries/{codex,claude}
           docker buildx build \
             --platform "$PLATFORM" \
             --network=none \
@@ -111,8 +117,24 @@ jobs:
             --build-arg "CODEX_VERSION=$CODEX_VERSION" \
             --build-arg "CLAUDE_VERSION=$CLAUDE_VERSION" \
             --tag koolade-provider-cli:candidate \
-            --load \
+            --output "type=oci,dest=$RUNNER_TEMP/provider-oci,tar=false,rewrite-timestamp=true" \
             containers/provider-cli
+      - name: Load the exported candidate into the rootless smoke engine
+        run: |
+          set -euo pipefail
+          if ! command -v skopeo >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y skopeo
+          fi
+          mkdir -p "$RUNNER_TEMP/provider-evidence"
+          manifest="$(jq -er '.manifests | select(length == 1) | .[0].digest' "$RUNNER_TEMP/provider-oci/index.json")"
+          [[ "$manifest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          cp "$RUNNER_TEMP/provider-oci/blobs/sha256/${manifest#sha256:}" "$RUNNER_TEMP/provider-evidence/manifest.json"
+          echo "${manifest#sha256:}  $RUNNER_TEMP/provider-evidence/manifest.json" | sha256sum --check --status
+          skopeo copy "oci:$RUNNER_TEMP/provider-oci" "docker-archive:$RUNNER_TEMP/provider.tar:koolade-provider-cli:candidate"
+          docker load --input "$RUNNER_TEMP/provider.tar"
+          expected="$(jq -er '.config.digest' "$RUNNER_TEMP/provider-evidence/manifest.json")"
+          test "$(docker image inspect --format '{{.Id}}' koolade-provider-cli:candidate)" = "$expected"
       - name: Verify contained image identity and CLI startup
         env:
           PLATFORM: ${{ matrix.platform }}
@@ -139,3 +161,38 @@ jobs:
              if touch /provider-root-write 2>/dev/null; then exit 1; fi'
       - name: Exercise synthetic managed-hook containment
         run: bash containers/provider-cli/tests/run-rootless-containment.sh koolade-provider-cli:candidate
+      - name: Install the pinned SBOM generator
+        id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          syft-version: v1.54.1
+      - name: Record candidate evidence after both smoke checks pass
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          BASE_IMAGE: ${{ steps.image.outputs.base_image }}
+          SYFT: ${{ steps.syft.outputs.cmd }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/provider-evidence"
+          "$SYFT" scan "oci-dir:$RUNNER_TEMP/provider-oci" -o "spdx-json=$evidence/sbom.spdx.json"
+          digest() { printf 'sha256:%s' "$(sha256sum "$1" | cut -d' ' -f1)"; }
+          jq -n --arg revision "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg platform "$PLATFORM" --arg base "$BASE_IMAGE" --arg digest "$(digest "$evidence/manifest.json")" \
+            --arg sbom "$(digest "$evidence/sbom.spdx.json")" --arg recipe "$(digest containers/provider-cli/Dockerfile)" \
+            --arg packages "$(digest containers/provider-cli/packages.lock.json)" \
+            --arg codex "$CODEX_VERSION" --arg claude "$CLAUDE_VERSION" \
+            '{schemaVersion:1,sourceRevision:$revision,runId:$run,runAttempt:$attempt,platform:$platform,
+              manifestDigest:$digest,baseImage:$base,dockerfileDigest:$recipe,packageLockDigest:$packages,
+              sbomDigest:$sbom,versions:{codex:$codex,claude:$claude},
+              checks:["native-cli-startup","synthetic-hook-container"]}' > "$evidence/candidate.json"
+      - name: Retain the tested OCI bytes for trusted promotion
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        run: mv "$RUNNER_TEMP/provider-oci" "$RUNNER_TEMP/provider-evidence/oci"
+      - name: Retain evidence for digest review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: provider-cli-evidence-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/provider-evidence/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
