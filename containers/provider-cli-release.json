@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "sourceRevision": "317aead060c2e9a237265eee801eec51e621f839",
+  "runId": 45820244800,
+  "runAttempt": 1,
+  "platforms": {
+    "linux/amd64": {
+      "manifestDigest": "sha256:add63dae0602d4191beb56517d9309d926be4817c56773a1e46508f7109049f2",
+      "candidateDigest": "sha256:6a3b5e4bfb8a8cd75a51719464251ba4c69d118f87cc2a51cc8aecbe404e4016"
+    },
+    "linux/arm64": {
+      "manifestDigest": "sha256:6e51b59a0900d17dfd8fc61e2b3c470e789c3c47478c44f5fc58c72ff944b53b",
+      "candidateDigest": "sha256:8f8dfd14495acdf165d3700130eea4b5cc88ccb88596404835bbbd8a1dc1e17a"
+    }
+  }
+}
