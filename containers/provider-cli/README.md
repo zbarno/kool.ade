@@ -35,3 +35,51 @@ The generated binaries are transient build inputs and must not be committed.
 The image is only a binary-delivery artifact. It does not configure auth,
 network access, provider readiness, or task execution; Codex and Claude remain
 blocked until their process containment and model/auth transport are enforced.
+
+The candidate workflow exports a single-platform OCI image for each architecture
+and checks the loaded manifest digest against the exported bytes before running
+the smoke tests. Each successful job retains the manifest bytes, an SPDX SBOM,
+and a candidate record in the corresponding `provider-cli-evidence-*` artifact.
+For promotion review, collect both artifacts from the same successful run and
+attempt on the intended source revision. Verify the manifest and SBOM SHA-256
+digests against each candidate record. The smoke checks cover CLI startup and
+synthetic child-process containment. Signed-in task execution requires separate
+application and credential-mediation evidence.
+
+### Promote a tested candidate
+
+Dispatch `provider-cli-image.yml` on `main`. Once both architecture jobs have
+passed, download the evidence before its 30-day retention period expires.
+Only a main dispatch retains the OCI layers needed for promotion. To prepare
+the release record in a topic branch, set `RUN_ID` to the successful run ID
+and execute the following commands from the repository root with Bash and jq.
+
+```bash
+set -euo pipefail
+evidence="$(mktemp -d)"
+gh run download "$RUN_ID" --pattern 'provider-cli-evidence-*' --dir "$evidence"
+gh api "repos/zbarno/kool.ade/actions/runs/$RUN_ID" > "$evidence/run.json"
+platforms='{}'
+for arch in x64 arm64; do
+  candidate="$evidence/provider-cli-evidence-$arch/candidate.json"
+  hash="sha256:$(sha256sum "$candidate" | cut -d' ' -f1)"
+  platforms="$(jq --argjson prev "$platforms" --arg hash "$hash" \
+    '$prev + {(.platform): {manifestDigest, candidateDigest: $hash}}' "$candidate")"
+done
+jq --argjson platforms "$platforms" \
+  '{schemaVersion:1,sourceRevision:.head_sha,runId:.id,runAttempt:.run_attempt,$platforms}' \
+  "$evidence/run.json" > "$evidence/release.json"
+for arch in amd64 arm64; do
+  suffix="$arch"
+  if [[ "$arch" == amd64 ]]; then suffix=x64; fi
+  python3 containers/provider-cli/verify-release.py "$evidence/release.json" \
+    "$evidence/run.json" "$evidence/provider-cli-evidence-$suffix" "$arch"
+done
+cp "$evidence/release.json" containers/provider-cli-release.json
+```
+
+Submit the release record for review. Its pull request verifies both retained
+images against the record. After the reviewed record lands on main, the
+publication workflow copies those images to GHCR by verified digest and
+attests their provenance and SBOM. App admission still requires review of the
+published image, attestations, and application containment evidence.

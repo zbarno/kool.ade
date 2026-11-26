@@ -1,0 +1,46 @@
+name: Verify provider release evidence
+description: Bind an OCI image, provenance and SBOM to a reviewed source revision
+inputs:
+  architecture:
+    description: Reviewed Linux image architecture
+    required: true
+outputs:
+  digest:
+    description: Verified platform manifest digest
+    value: ${{ steps.verify.outputs.digest }}
+runs:
+  using: composite
+  steps:
+    - id: source
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ARCHITECTURE: ${{ inputs.architecture }}
+      run: |
+        set -euo pipefail
+        lock=containers/provider-cli-release.json
+        revision="$(jq -er .sourceRevision "$lock")"
+        [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+        git merge-base --is-ancestor "$revision" HEAD
+        git diff --exit-code "$revision" HEAD -- containers/provider-cli containers/base-images.lock.json .github/workflows/provider-cli-image.yml
+        run="$(jq -er '.runId | select(type == "number")' "$lock")"
+        [[ "$run" =~ ^[1-9][0-9]*$ ]]
+        gh api "repos/zbarno/kool.ade/actions/runs/$run" > "$RUNNER_TEMP/provider-run.json"
+        python3 containers/provider-cli/verify-release.py "$lock" "$RUNNER_TEMP/provider-run.json" --source-only
+        case "$ARCHITECTURE" in amd64) suffix=x64 ;; arm64) suffix=arm64 ;; *) exit 1 ;; esac
+        printf 'run=%s\nartifact=provider-cli-evidence-%s\n' "$run" "$suffix" >> "$GITHUB_OUTPUT"
+    - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+      with:
+        name: ${{ steps.source.outputs.artifact }}
+        path: ${{ runner.temp }}/provider-evidence
+        run-id: ${{ steps.source.outputs.run }}
+        github-token: ${{ github.token }}
+    - id: verify
+      shell: bash
+      env:
+        ARCHITECTURE: ${{ inputs.architecture }}
+      run: |
+        set -euo pipefail
+        digest="$(python3 containers/provider-cli/verify-release.py containers/provider-cli-release.json \
+          "$RUNNER_TEMP/provider-run.json" "$RUNNER_TEMP/provider-evidence" "$ARCHITECTURE")"
+        printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"

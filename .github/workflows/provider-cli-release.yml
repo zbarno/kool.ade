@@ -1,0 +1,88 @@
+name: Promote reviewed provider CLI images
+on:
+  pull_request:
+    paths:
+      - containers/provider-cli-release.json
+  push:
+    branches: [main]
+    paths:
+      - containers/provider-cli-release.json
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    if: github.repository == 'zbarno/kool.ade'
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        architecture: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/provider-release-evidence
+        with:
+          architecture: ${{ matrix.architecture }}
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'zbarno/kool.ade'
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+      attestations: write
+      id-token: write
+      artifact-metadata: write
+    strategy:
+      matrix:
+        architecture: [amd64, arm64]
+    env:
+      IMAGE: ghcr.io/zbarno/koolade-provider-cli
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: evidence
+        uses: ./.github/actions/provider-release-evidence
+        with:
+          architecture: ${{ matrix.architecture }}
+      - name: Publish verified OCI bytes and check the registry digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHITECTURE: ${{ matrix.architecture }}
+          DIGEST: ${{ steps.evidence.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if ! command -v skopeo >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y skopeo
+          fi
+          export DOCKER_CONFIG="$RUNNER_TEMP/provider-publisher"
+          echo "DOCKER_CONFIG=$DOCKER_CONFIG" >> "$GITHUB_ENV"
+          mkdir -m 700 "$DOCKER_CONFIG"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          tag="$IMAGE:release-$GITHUB_SHA-$ARCHITECTURE"
+          skopeo copy --authfile "$DOCKER_CONFIG/config.json" --preserve-digests \
+            "oci:$RUNNER_TEMP/provider-evidence/oci" "docker://$tag"
+          actual="$(skopeo inspect --authfile "$DOCKER_CONFIG/config.json" --format '{{.Digest}}' "docker://$tag")"
+          test "$actual" = "$DIGEST"
+      - name: Attest provider image publication
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.evidence.outputs.digest }}
+          push-to-registry: true
+      - name: Attest retained provider SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.evidence.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/provider-evidence/sbom.spdx.json
+          push-to-registry: true
